@@ -20,7 +20,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Stati conversazione
+# Stati conversazione  
 (DATA, COGNOME, NOME, DOCUMENTO, NUMERO_DOCUMENTO, TELEFONO, ASSOCIATO, TIPO_NOLEGGIO, 
  DETTAGLI_SUP, DETTAGLI_LETTINO, LETTINO_NUMERO, TEMPO, PAGAMENTO, IMPORTO, FOTO_RICEVUTA, NOTE) = range(16)
 
@@ -151,95 +151,78 @@ async def get_importo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await update.message.reply_text("❌ Importo non valido (es: 25, 30.50):")
         return IMPORTO
 
+async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Salva registrazione quando viene da callback (senza note)"""
+    try:
+        registrazione = {
+            'data': context.user_data['data'],
+            'cognome': context.user_data['cognome'],
+            'nome': context.user_data['nome'],
+            'documento': context.user_data['documento'],
+            'numero_documento': context.user_data['numero_documento'],
+            'telefono': context.user_data['telefono'],
+            'associato': context.user_data['associato'],
+            'tipo_noleggio': context.user_data['tipo_noleggio'],
+            'dettagli': context.user_data.get('dettagli', ''),
+            'numero': context.user_data.get('numero', ''),
+            'tempo': context.user_data['tempo'],
+            'pagamento': context.user_data['pagamento'],
+            'importo': context.user_data.get('importo', ''),
+            'foto_ricevuta': context.user_data.get('foto_ricevuta'),
+            'note': context.user_data.get('note'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        bot_instance.noleggi.append(registrazione)
+        bot_instance.save_data()
+        
+        # Salva i dati cliente per eventuali noleggi aggiuntivi
+        if 'cliente_base' not in context.user_data:
+            context.user_data['cliente_base'] = {
+                'data': context.user_data['data'],
+                'cognome': context.user_data['cognome'],
+                'nome': context.user_data['nome'],
+                'documento': context.user_data['documento'],
+                'numero_documento': context.user_data['numero_documento'],
+                'telefono': context.user_data['telefono'],
+                'associato': context.user_data['associato']
+            }
+        
+        messaggio = f"""
+✅ **NOLEGGIO REGISTRATO!**
+
+👤 {registrazione['cognome']} {registrazione['nome']}
+🏄‍♂️ {registrazione['tipo_noleggio']} {registrazione['dettagli']}
+🔢 N. {registrazione['numero']}
+⏱️ {registrazione['tempo']}
+💰 {registrazione['importo']}
+        """
+        
+        # Pulsanti per aggiungere altro o finire
+        keyboard = [
+            [InlineKeyboardButton("➕ Aggiungi altro noleggio", callback_data="altro_noleggio")],
+            [InlineKeyboardButton("✅ Finito", callback_data="finito")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(messaggio + "\n\n🤔 Vuole noleggiare altro?", reply_markup=reply_markup)
+        
+        return FOTO_RICEVUTA  # Stato che gestisce callback generici
+        
+    except Exception as e:
+        logger.error(f"Errore salvataggio: {e}")
+        await query.edit_message_text("❌ Errore salvataggio")
+        context.user_data.clear()
+        return ConversationHandler.END
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Handler unificato per tutti i callback"""
     query = update.callback_query
     await query.answer()
     data = query.data
     
-    # Gestione callback per mostra_noleggi (raggruppati per cliente)
-    if data.startswith("cliente_"):
-        cliente_idx = int(data.replace("cliente_", ""))
-        noleggi_oggi = bot_instance.get_noleggi_oggi()
-        
-        # Raggruppa per cliente
-        clienti_noleggi = defaultdict(list)
-        for noleggio in noleggi_oggi:
-            nome_completo = f"{noleggio.get('cognome', '')} {noleggio.get('nome', '')}"
-            clienti_noleggi[nome_completo].append(noleggio)
-        
-        # Ottieni il cliente specifico
-        clienti_lista = list(clienti_noleggi.items())
-        if cliente_idx < len(clienti_lista):
-            nome_cliente, noleggi_cliente = clienti_lista[cliente_idx]
-            
-            # Crea messaggio con tutti i noleggi del cliente
-            primo_noleggio = noleggi_cliente[0]  # Per dati base
-            
-            messaggio = f"""
-👤 **{nome_cliente}**
-
-📞 {primo_noleggio['telefono']}
-📄 {primo_noleggio['documento']} - {primo_noleggio.get('numero_documento', '')}
-🏅 Associato: {primo_noleggio['associato']}
-
-🏄‍♂️ **NOLEGGI ({len(noleggi_cliente)}):**
-            """
-            
-            # Lista tutti i noleggi
-            keyboard = []
-            for i, noleggio in enumerate(noleggi_cliente):
-                tipo_icon = {"SUP": "🏄‍♂️", "KAYAK": "🚣‍♂️", "LETTINO": "🏖️", "PHONEBAG": "📱", "DRYBAG": "🎒"}.get(noleggio['tipo_noleggio'], "📦")
-                
-                messaggio += f"\n{i+1}. {tipo_icon} {noleggio['tipo_noleggio']} {noleggio['dettagli']}"
-                messaggio += f"\n   🔢 N.{noleggio['numero']} | ⏱️ {noleggio['tempo']} | 💰 {noleggio.get('importo', 'N/A')}"
-                messaggio += f"\n   💳 {noleggio['pagamento']}"
-                
-                if noleggio.get('note'):
-                    messaggio += f"\n   📝 {noleggio['note']}"
-                
-                # Pulsante per foto se presente
-                if noleggio.get('foto_ricevuta'):
-                    # Trova l'indice globale del noleggio
-                    for j, n in enumerate(noleggi_oggi):
-                        if n == noleggio:
-                            keyboard.append([InlineKeyboardButton(f"📸 Foto {noleggio['tipo_noleggio']} N.{noleggio['numero']}", callback_data=f"foto_{j}")])
-                            break
-                
-                messaggio += "\n"
-            
-            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-            await query.edit_message_text(messaggio, reply_markup=reply_markup)
-        
-        return ConversationHandler.END
-    
-    # Gestione visualizzazione foto
-    elif data.startswith("foto_"):
-        cliente_idx = int(data.replace("foto_", ""))
-        noleggi_oggi = bot_instance.get_noleggi_oggi()
-        
-        if cliente_idx < len(noleggi_oggi):
-            registro = noleggi_oggi[cliente_idx]
-            foto_filename = registro.get('foto_ricevuta')
-            
-            if foto_filename:
-                foto_path = os.path.join(PHOTOS_DIR, foto_filename)
-                if os.path.exists(foto_path):
-                    with open(foto_path, 'rb') as foto:
-                        await query.message.reply_photo(
-                            photo=foto,
-                            caption=f"📸 Ricevuta di {registro.get('cognome', '')} {registro.get('nome', '')}\n"
-                                   f"💰 {registro.get('importo', 'N/A')} - {registro['pagamento']}"
-                        )
-                else:
-                    await query.message.reply_text("❌ File foto non trovato")
-            else:
-                await query.message.reply_text("❌ Nessuna foto disponibile")
-        
-        return ConversationHandler.END
-    
-    # Gestione noleggi multipli
-    elif data == "altro_noleggio":
+    # ====== GESTIONE NOLEGGI MULTIPLI (PRIMA DI TUTTO) ======
+    if data == "altro_noleggio":
         # Ripristina i dati base del cliente
         if 'cliente_base' in context.user_data:
             context.user_data.update(context.user_data['cliente_base'])
@@ -295,8 +278,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data.clear()
         return ConversationHandler.END
     
+    # ====== GESTIONE REGISTRAZIONE NUOVO NOLEGGIO ======
     # Documento
-    if data.startswith("doc_"):
+    elif data.startswith("doc_"):
         documento = data.replace("doc_", "").replace("_", ".")
         context.user_data['documento'] = documento
         await query.edit_message_text(f"✅ Documento: {documento}\n\nInserisci NUMERO documento:")
@@ -401,16 +385,100 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
         return IMPORTO
     
-    # Foto ricevuta
+    # ====== FOTO RICEVUTA (IMPORTANTE!) ======
     elif data == "foto_SI":
         await query.edit_message_text("📸 Invia foto ricevuta:")
         context.user_data['attende_foto'] = True
         return FOTO_RICEVUTA
     elif data == "foto_NO":
         context.user_data['foto_ricevuta'] = None
-        await query.edit_message_text("✅ Nessuna foto\n\nAggiungi NOTE? (o 'skip'):")
-        return NOTE
+        context.user_data['note'] = None  # Nessuna nota
+        # VA DIRETTAMENTE AL SALVATAGGIO invece di cambiare stato
+        return await salva_registrazione_callback(query, context)
     
+    # ====== GESTIONE VISUALIZZAZIONE CLIENTI ======
+    # Gestione callback per mostra_noleggi (raggruppati per cliente)
+    elif data.startswith("cliente_"):
+        cliente_idx = int(data.replace("cliente_", ""))
+        noleggi_oggi = bot_instance.get_noleggi_oggi()
+        
+        # Raggruppa per cliente
+        clienti_noleggi = defaultdict(list)
+        for noleggio in noleggi_oggi:
+            nome_completo = f"{noleggio.get('cognome', '')} {noleggio.get('nome', '')}"
+            clienti_noleggi[nome_completo].append(noleggio)
+        
+        # Ottieni il cliente specifico
+        clienti_lista = list(clienti_noleggi.items())
+        if cliente_idx < len(clienti_lista):
+            nome_cliente, noleggi_cliente = clienti_lista[cliente_idx]
+            
+            # Crea messaggio con tutti i noleggi del cliente
+            primo_noleggio = noleggi_cliente[0]  # Per dati base
+            
+            messaggio = f"""
+👤 **{nome_cliente}**
+
+📞 {primo_noleggio['telefono']}
+📄 {primo_noleggio['documento']} - {primo_noleggio.get('numero_documento', '')}
+🏅 Associato: {primo_noleggio['associato']}
+
+🏄‍♂️ **NOLEGGI ({len(noleggi_cliente)}):**
+            """
+            
+            # Lista tutti i noleggi
+            keyboard = []
+            for i, noleggio in enumerate(noleggi_cliente):
+                tipo_icon = {"SUP": "🏄‍♂️", "KAYAK": "🚣‍♂️", "LETTINO": "🏖️", "PHONEBAG": "📱", "DRYBAG": "🎒"}.get(noleggio['tipo_noleggio'], "📦")
+                
+                messaggio += f"\n{i+1}. {tipo_icon} {noleggio['tipo_noleggio']} {noleggio['dettagli']}"
+                messaggio += f"\n   🔢 N.{noleggio['numero']} | ⏱️ {noleggio['tempo']} | 💰 {noleggio.get('importo', 'N/A')}"
+                messaggio += f"\n   💳 {noleggio['pagamento']}"
+                
+                if noleggio.get('note'):
+                    messaggio += f"\n   📝 {noleggio['note']}"
+                
+                # Pulsante per foto se presente
+                if noleggio.get('foto_ricevuta'):
+                    # Trova l'indice globale del noleggio
+                    for j, n in enumerate(noleggi_oggi):
+                        if n == noleggio:
+                            keyboard.append([InlineKeyboardButton(f"📸 Foto {noleggio['tipo_noleggio']} N.{noleggio['numero']}", callback_data=f"foto_{j}")])
+                            break
+                
+                messaggio += "\n"
+            
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            await query.edit_message_text(messaggio, reply_markup=reply_markup)
+        
+        return ConversationHandler.END
+    
+    # Gestione visualizzazione foto esistenti (solo numeri)
+    elif data.startswith("foto_") and data.replace("foto_", "").isdigit():
+        cliente_idx = int(data.replace("foto_", ""))
+        noleggi_oggi = bot_instance.get_noleggi_oggi()
+        
+        if cliente_idx < len(noleggi_oggi):
+            registro = noleggi_oggi[cliente_idx]
+            foto_filename = registro.get('foto_ricevuta')
+            
+            if foto_filename:
+                foto_path = os.path.join(PHOTOS_DIR, foto_filename)
+                if os.path.exists(foto_path):
+                    with open(foto_path, 'rb') as foto:
+                        await query.message.reply_photo(
+                            photo=foto,
+                            caption=f"📸 Ricevuta di {registro.get('cognome', '')} {registro.get('nome', '')}\n"
+                                   f"💰 {registro.get('importo', 'N/A')} - {registro['pagamento']}"
+                        )
+                else:
+                    await query.message.reply_text("❌ File foto non trovato")
+            else:
+                await query.message.reply_text("❌ Nessuna foto disponibile")
+        
+        return ConversationHandler.END
+    
+    # Se nessun callback riconosciuto
     return ConversationHandler.END
 
 async def show_tempo_buttons(query, context):
@@ -503,7 +571,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         return NOTE
 
 async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve note e salva"""
+    """Riceve note e passa al salvataggio con pulsanti"""
     note_text = update.message.text.strip()
     
     if note_text.lower() == 'skip':
@@ -511,10 +579,29 @@ async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     else:
         context.user_data['note'] = note_text
     
+    # Simula un callback query per usare la versione con pulsanti
+    from types import SimpleNamespace
+    fake_query = SimpleNamespace()
+    fake_query.edit_message_text = lambda text, reply_markup=None: update.message.reply_text(text, reply_markup=reply_markup)
+    fake_query.message = update.message
+    
+    return await salva_registrazione_callback(fake_query, context)
+
+async def handle_text_in_foto_state(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gestisce testo ricevuto durante stato foto (per note dirette)"""
+    note_text = update.message.text.strip()
+    
+    if note_text.lower() == 'skip':
+        context.user_data['note'] = None
+        context.user_data['foto_ricevuta'] = None
+    else:
+        context.user_data['note'] = note_text
+        context.user_data['foto_ricevuta'] = None
+    
     return await salva_registrazione(update, context)
 
-async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Salva registrazione e chiede se aggiungere altro noleggio"""
+async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Salva registrazione quando viene da callback (senza note)"""
     try:
         registrazione = {
             'data': context.user_data['data'],
@@ -567,9 +654,57 @@ async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await update.message.reply_text(messaggio + "\n\n🤔 Vuole noleggiare altro?", reply_markup=reply_markup)
+        await query.edit_message_text(messaggio + "\n\n🤔 Vuole noleggiare altro?", reply_markup=reply_markup)
         
         return TIPO_NOLEGGIO  # Resta nello stato per gestire altri noleggi
+        
+    except Exception as e:
+        logger.error(f"Errore salvataggio: {e}")
+        await query.edit_message_text("❌ Errore salvataggio")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Salva registrazione completa - FINISCE conversazione"""
+    try:
+        registrazione = {
+            'data': context.user_data['data'],
+            'cognome': context.user_data['cognome'],
+            'nome': context.user_data['nome'],
+            'documento': context.user_data['documento'],
+            'numero_documento': context.user_data['numero_documento'],
+            'telefono': context.user_data['telefono'],
+            'associato': context.user_data['associato'],
+            'tipo_noleggio': context.user_data['tipo_noleggio'],
+            'dettagli': context.user_data.get('dettagli', ''),
+            'numero': context.user_data.get('numero', ''),
+            'tempo': context.user_data['tempo'],
+            'pagamento': context.user_data['pagamento'],
+            'importo': context.user_data.get('importo', ''),
+            'foto_ricevuta': context.user_data.get('foto_ricevuta'),
+            'note': context.user_data.get('note'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        bot_instance.noleggi.append(registrazione)
+        bot_instance.save_data()
+        
+        messaggio = f"""
+✅ **REGISTRAZIONE COMPLETATA!**
+
+👤 {registrazione['cognome']} {registrazione['nome']}
+🏄‍♂️ {registrazione['tipo_noleggio']} {registrazione['dettagli']}
+🔢 N. {registrazione['numero']}
+⏱️ {registrazione['tempo']}
+💰 {registrazione['importo']}
+
+💡 Usa /nuovo per registrare un altro cliente
+💡 Usa /mostra_noleggi per vedere tutti i clienti di oggi
+        """
+        
+        await update.message.reply_text(messaggio)
+        context.user_data.clear()
+        return ConversationHandler.END
         
     except Exception as e:
         logger.error(f"Errore salvataggio: {e}")
@@ -732,7 +867,8 @@ def main():
             IMPORTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_importo)],
             FOTO_RICEVUTA: [
                 CallbackQueryHandler(handle_callback),
-                MessageHandler(filters.PHOTO, handle_photo)
+                MessageHandler(filters.PHOTO, handle_photo),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text_in_foto_state)
             ],
             NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)],
         },
@@ -745,8 +881,9 @@ def main():
     application.add_handler(CommandHandler("mostra_noleggi", mostra_noleggi))
     application.add_handler(CommandHandler("export", export_csv))
     
-    # Handler per i callback di mostra_noleggi (fuori dalla conversazione)
-    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(cliente_|foto_)"))
+    # Handler per i callback di mostra_noleggi (fuori dalla conversazione) - PATTERN SPECIFICO
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^cliente_[0-9]+$"))
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^foto_[0-9]+$"))
     
     print("🏄‍♂️ Bot SUP v.2.5 avviato!")
     print("📅 /mostra_noleggi - Vedi clienti di oggi")
