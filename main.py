@@ -1,10 +1,26 @@
-#!/usr/bin/env python3
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra la guida ai comandi"""
+    help_text = """
+🏄‍♂️ **BOT NOLEGGIO SUP - GUIDA COMANDI**
+
+/nuovo - Inizia una nuova registrazione noleggio
+/cerca - Cerca cliente (nome/tipo noleggio/numero)
+/mostra_clienti - Lista completa clienti con contatori
+/modifica - Modifica dati di un cliente esistente
+/export - Esporta tutti i dati in formato CSV
+/vedi_ricevute - Visualizza stato ricevute per cliente
+/help - Mostra questa guida
+/cancel - Annulla l'operazione in corso
+
+**Come funziona:**
+1. Usa /nuovo per registrare un noleggio
+2.#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 2.1 - STESSO TEMPO PER TUTTO! 1-8h sempre uguale!
+Versione: 2.2 - Date validation + Importo € + Note + Fix /start
 """
 
 import os
@@ -23,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Stati della conversazione
 (DATA, COGNOME, NOME, DOCUMENTO, NUMERO_DOCUMENTO, TELEFONO, ASSOCIATO, TIPO_NOLEGGIO, 
- DETTAGLI_SUP, DETTAGLI_LETTINO, LETTINO_NUMERO, TEMPO, PAGAMENTO, FOTO_RICEVUTA) = range(14)
+ DETTAGLI_SUP, DETTAGLI_LETTINO, LETTINO_NUMERO, TEMPO, PAGAMENTO, IMPORTO, FOTO_RICEVUTA, NOTE) = range(16)
 
 # File per salvare i dati e le foto
 DATA_FILE = 'noleggi.json'
@@ -74,18 +90,39 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return DATA
 
 async def get_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve la data e chiede il cognome"""
+    """Riceve la data e chiede il cognome - CON VALIDAZIONE DATE"""
     try:
         data_text = update.message.text
         # Valida il formato della data
-        datetime.strptime(data_text, '%d/%m/%Y')
+        data_obj = datetime.strptime(data_text, '%d/%m/%Y')
+        
+        # Verifica che sia dal 2025 in poi e massimo 1 anno nel futuro
+        oggi = datetime.now()
+        data_minima = datetime(2025, 1, 1)
+        data_massima = datetime(oggi.year + 1, oggi.month, oggi.day)
+        
+        if data_obj < data_minima:
+            await update.message.reply_text(
+                "❌ La data deve essere dal 2025 in poi.\n"
+                "Inserisci una data valida (formato: DD/MM/YYYY):"
+            )
+            return DATA
+            
+        if data_obj > data_massima:
+            await update.message.reply_text(
+                f"❌ La data non può essere oltre {data_massima.strftime('%d/%m/%Y')}.\n"
+                "Inserisci una data valida (formato: DD/MM/YYYY):"
+            )
+            return DATA
+        
         context.user_data['data'] = data_text
         
         await update.message.reply_text("Perfetto! Ora inserisci il COGNOME:")
         return COGNOME
+        
     except ValueError:
         await update.message.reply_text(
-            "❌ Formato data non valido. Usa il formato DD/MM/YYYY (es: 25/12/2024):"
+            "❌ Formato data non valido. Usa il formato DD/MM/YYYY (es: 25/12/2025):"
         )
         return DATA
 
@@ -114,6 +151,213 @@ async def get_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return DOCUMENTO
 
+async def get_importo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Riceve l'importo e chiede la foto ricevuta"""
+    importo_text = update.message.text.replace(',', '.').strip()
+    
+    try:
+        # Verifica che sia un numero valido
+        importo = float(importo_text)
+        if importo <= 0:
+            raise ValueError
+        
+        # Formatta a 2 decimali
+        context.user_data['importo'] = f"{importo:.2f}€"
+        
+        # Ora chiedi la foto ricevuta
+        keyboard = [
+            [InlineKeyboardButton("📸 SÌ - Allego foto", callback_data="foto_SI")],
+            [InlineKeyboardButton("❌ NO - Nessuna foto", callback_data="foto_NO")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await update.message.reply_text(
+            f"✅ Importo: {context.user_data['importo']}\n\n"
+            "📷 Vuoi allegare la foto della ricevuta?",
+            reply_markup=reply_markup
+        )
+        return FOTO_RICEVUTA
+        
+    except ValueError:
+        await update.message.reply_text(
+            "❌ Inserisci un importo valido in Euro (es: 25, 30.50):"
+        )
+        return IMPORTO
+    """Gestisce tutti i callback dei pulsanti inline"""
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback
+    
+    data = query.data
+    
+    # Documento
+    if data.startswith("doc_"):
+        documento = data.replace("doc_", "").replace("_", ".")
+        context.user_data['documento'] = documento
+        
+        await query.edit_message_text(
+            f"✅ Documento selezionato: {documento}\n\n"
+            f"Inserisci il NUMERO del documento {documento}:"
+        )
+        return NUMERO_DOCUMENTO
+    
+    # Associato
+    elif data.startswith("assoc_"):
+        associato = "SÌ" if data == "assoc_SI" else "NO"
+        context.user_data['associato'] = associato
+        
+        # Inline buttons per tipo noleggio
+        keyboard = [
+            [InlineKeyboardButton("🏄‍♂️ SUP", callback_data="tipo_SUP")],
+            [InlineKeyboardButton("🚣‍♂️ KAYAK", callback_data="tipo_KAYAK")],
+            [InlineKeyboardButton("🏖️ LETTINO", callback_data="tipo_LETTINO")],
+            [InlineKeyboardButton("📱 PHONEBAG", callback_data="tipo_PHONEBAG")],
+            [InlineKeyboardButton("🎒 DRYBAG", callback_data="tipo_DRYBAG")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"✅ Associato: {associato}\n\n"
+            "Cosa viene noleggiato?",
+            reply_markup=reply_markup
+        )
+        return TIPO_NOLEGGIO
+    
+    # Tipo noleggio
+    elif data.startswith("tipo_"):
+        tipo = data.replace("tipo_", "")
+        context.user_data['tipo_noleggio'] = tipo
+        
+        if tipo == 'SUP':
+            keyboard = [
+                [InlineKeyboardButton("All-around", callback_data="sup_All-around")],
+                [InlineKeyboardButton("Touring", callback_data="sup_Touring")],
+                [InlineKeyboardButton("Race", callback_data="sup_Race")],
+                [InlineKeyboardButton("Surf", callback_data="sup_Surf")],
+                [InlineKeyboardButton("Yoga", callback_data="sup_Yoga")],
+                [InlineKeyboardButton("Whitewater", callback_data="sup_Whitewater")],
+                [InlineKeyboardButton("Windsurf", callback_data="sup_Windsurf")],
+                [InlineKeyboardButton("Foil", callback_data="sup_Foil")],
+                [InlineKeyboardButton("Multi", callback_data="sup_Multi")],
+                [InlineKeyboardButton("Fishing", callback_data="sup_Fishing")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"✅ Tipo noleggio: {tipo}\n\n"
+                "Seleziona il tipo di SUP:",
+                reply_markup=reply_markup
+            )
+            return DETTAGLI_SUP
+            
+        elif tipo == 'LETTINO':
+            keyboard = [
+                [InlineKeyboardButton("🌲 Pineta", callback_data="lettino_Pineta")],
+                [InlineKeyboardButton("🚤 Squero", callback_data="lettino_Squero")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"✅ Tipo noleggio: {tipo}\n\n"
+                "Seleziona il tipo di LETTINO:",
+                reply_markup=reply_markup
+            )
+            return DETTAGLI_LETTINO
+            
+        elif tipo in ['PHONEBAG', 'DRYBAG']:
+            await query.edit_message_text(
+                f"✅ Tipo noleggio: {tipo}\n\n"
+                f"Inserisci il numero del {tipo} (0-99):"
+            )
+            return LETTINO_NUMERO
+            
+        else:  # KAYAK
+            context.user_data['dettagli'] = 'Standard'
+            # USA SEMPRE LA STESSA FUNZIONE TEMPO!
+            return await show_tempo_buttons(query, context)
+    
+    # SUP dettagli
+    elif data.startswith("sup_"):
+        dettagli = data.replace("sup_", "")
+        context.user_data['dettagli'] = dettagli
+        # USA SEMPRE LA STESSA FUNZIONE TEMPO!
+        return await show_tempo_buttons(query, context)
+    
+    # Lettino dettagli
+    elif data.startswith("lettino_"):
+        dettagli = data.replace("lettino_", "")
+        context.user_data['dettagli'] = dettagli
+        
+        associato = context.user_data['associato']
+        if associato == 'SÌ':
+            await query.edit_message_text(
+                f"✅ Lettino: {dettagli}\n\n"
+                "Inserisci la LETTERA del lettino (A-Z):"
+            )
+        else:
+            await query.edit_message_text(
+                f"✅ Lettino: {dettagli}\n\n"
+                "Inserisci il NUMERO del lettino (0-99):"
+            )
+        return LETTINO_NUMERO
+    
+    # Tempo
+    elif data.startswith("tempo_"):
+        tempo = data.replace("tempo_", "")
+        context.user_data['tempo'] = tempo
+        
+        keyboard = [
+            [InlineKeyboardButton("💳 CARTA", callback_data="pag_CARD")],
+            [InlineKeyboardButton("🏦 BONIFICO", callback_data="pag_BONIFICO")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.edit_message_text(
+                f"✅ Tempo: {tempo}\n\n"
+                "💰 Seleziona il tipo di PAGAMENTO:",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Errore pagamento buttons: {e}")
+            await query.message.reply_text(
+                f"✅ Tempo: {tempo}\n\n"
+                "💰 Seleziona il tipo di PAGAMENTO:",
+                reply_markup=reply_markup
+            )
+        return PAGAMENTO
+    
+    # Pagamento
+    elif data.startswith("pag_"):
+        pagamento = data.replace("pag_", "")
+        context.user_data['pagamento'] = pagamento
+        
+        # Invece di andare direttamente alla foto, chiedi l'importo
+        try:
+            await query.edit_message_text(
+                f"✅ Pagamento: {pagamento}\n\n"
+                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
+            )
+        except Exception as e:
+            logger.error(f"Errore importo: {e}")
+            await query.message.reply_text(
+                f"✅ Pagamento: {pagamento}\n\n"
+                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
+            )
+        return IMPORTO
+    
+    # Foto ricevuta
+    elif data.startswith("foto_"):
+        if data == "foto_SI":
+            await query.edit_message_text(
+                "📸 Invia la foto della ricevuta:"
+            )
+            context.user_data['attende_foto'] = True
+            return FOTO_RICEVUTA
+        else:
+            context.user_data['foto_ricevuta'] = None
+            await query.edit_message_text("✅ Nessuna foto allegata.")
+            return await salva_registrazione_callback(query, context)
+    
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Gestisce tutti i callback dei pulsanti inline"""
     query = update.callback_query
@@ -263,26 +507,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pagamento = data.replace("pag_", "")
         context.user_data['pagamento'] = pagamento
         
-        keyboard = [
-            [InlineKeyboardButton("📸 SÌ - Allego foto", callback_data="foto_SI")],
-            [InlineKeyboardButton("❌ NO - Nessuna foto", callback_data="foto_NO")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
+        # Invece di andare direttamente alla foto, chiedi l'importo
         try:
             await query.edit_message_text(
                 f"✅ Pagamento: {pagamento}\n\n"
-                "📷 Vuoi allegare la foto della ricevuta?",
-                reply_markup=reply_markup
+                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
             )
         except Exception as e:
-            logger.error(f"Errore foto buttons: {e}")
+            logger.error(f"Errore importo: {e}")
             await query.message.reply_text(
                 f"✅ Pagamento: {pagamento}\n\n"
-                "📷 Vuoi allegare la foto della ricevuta?",
-                reply_markup=reply_markup
+                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
             )
-        return FOTO_RICEVUTA
+        return IMPORTO
     
     # Foto ricevuta
     elif data.startswith("foto_"):
@@ -294,8 +531,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return FOTO_RICEVUTA
         else:
             context.user_data['foto_ricevuta'] = None
-            await query.edit_message_text("✅ Nessuna foto allegata.")
-            return await salva_registrazione_callback(query, context)
+            # Invece di finire, chiedi le note
+            await query.edit_message_text(
+                "✅ Nessuna foto allegata.\n\n"
+                "📝 Vuoi aggiungere delle NOTE? (Scrivi le note o 'skip' per saltare):"
+            )
+            return NOTE
     
     return ConversationHandler.END
 
@@ -403,7 +644,9 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
             'numero': context.user_data.get('numero', ''),
             'tempo': context.user_data['tempo'],
             'pagamento': context.user_data['pagamento'],
+            'importo': context.user_data.get('importo', ''),
             'foto_ricevuta': context.user_data.get('foto_ricevuta'),
+            'note': context.user_data.get('note'),
             'timestamp': datetime.now().isoformat()
         }
         
@@ -413,7 +656,7 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
         
         # Messaggio di conferma
         messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA! (v.2.1)**
+✅ **REGISTRAZIONE COMPLETATA! (v.2.2)**
 
 📅 Data: {registrazione['data']}
 👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
@@ -425,10 +668,12 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
 🔢 Numero: {registrazione['numero']}
 ⏱️ Tempo: {registrazione['tempo']}
 💳 Pagamento: {registrazione['pagamento']}
+💰 Importo: {registrazione['importo']}
 📸 Foto ricevuta: {'✅ Presente' if registrazione['foto_ricevuta'] else '❌ Non allegata'}
+📝 Note: {registrazione['note'] if registrazione['note'] else '❌ Nessuna nota'}
 
 💡 **Comandi utili:**
-• /start - Nuova registrazione
+• /nuovo - Nuova registrazione
 • /cerca {registrazione['cognome']} - Trova questo cliente
 • /mostra_clienti - Vedi tutti i clienti
 • /export - Esporta dati CSV
@@ -751,20 +996,40 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         nome = context.user_data.get('nome', 'unknown')
         cognome = context.user_data.get('cognome', 'unknown')
-        filename = f"{timestamp}_{nome}_{cognome}_ricevuta.jpg"
+        filename = f"{timestamp}_{cognome}_{nome}_ricevuta.jpg"
         filepath = os.path.join(PHOTOS_DIR, filename)
         
         await file.download_to_drive(filepath)
         context.user_data['foto_ricevuta'] = filename
         
-        await update.message.reply_text("✅ Foto ricevuta salvata!")
-        return await salva_registrazione(update, context)
+        await update.message.reply_text(
+            "✅ Foto ricevuta salvata!\n\n"
+            "📝 Vuoi aggiungere delle NOTE? (Scrivi le note o 'skip' per saltare):"
+        )
+        return NOTE
         
     except Exception as e:
         logger.error(f"Errore salvataggio foto: {e}")
-        await update.message.reply_text("⚠️ Errore nel salvataggio della foto, procedo senza foto.")
+        await update.message.reply_text(
+            "⚠️ Errore nel salvataggio della foto, procedo senza foto.\n\n"
+            "📝 Vuoi aggiungere delle NOTE? (Scrivi le note o 'skip' per saltare):"
+        )
         context.user_data['foto_ricevuta'] = None
-        return await salva_registrazione(update, context)
+        return NOTE
+
+async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Riceve le note e completa la registrazione"""
+    note_text = update.message.text.strip()
+    
+    if note_text.lower() == 'skip':
+        context.user_data['note'] = None
+        await update.message.reply_text("✅ Nessuna nota aggiunta.")
+    else:
+        context.user_data['note'] = note_text
+        await update.message.reply_text(f"✅ Note salvate: {note_text}")
+    
+    # Ora salva tutto
+    return await salva_registrazione(update, context)
 
 async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Salva la registrazione completa"""
@@ -844,8 +1109,8 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = [
                 'Data', 'Cognome', 'Nome', 'Documento', 'Numero_Documento', 'Telefono', 'Associato',
-                'Tipo_Noleggio', 'Dettagli', 'Numero', 'Tempo', 'Pagamento', 
-                'Foto_Ricevuta', 'Timestamp'
+                'Tipo_Noleggio', 'Dettagli', 'Numero', 'Tempo', 'Pagamento', 'Importo',
+                'Foto_Ricevuta', 'Note', 'Timestamp'
             ]
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
@@ -864,7 +1129,9 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                     'Numero': registro['numero'],
                     'Tempo': registro['tempo'],
                     'Pagamento': registro['pagamento'],
+                    'Importo': registro.get('importo', ''),
                     'Foto_Ricevuta': registro['foto_ricevuta'] or 'Non presente',
+                    'Note': registro.get('note', ''),
                     'Timestamp': registro['timestamp']
                 })
         
@@ -1350,7 +1617,7 @@ def main():
         
         # Handler per la conversazione di registrazione
         conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("start", start)],
+            entry_points=[CommandHandler("nuovo", start)],  # SOLO /nuovo funziona
             states={
                 DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_data)],
                 COGNOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_cognome)],
@@ -1365,10 +1632,12 @@ def main():
                 LETTINO_NUMERO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_lettino_numero)],
                 TEMPO: [CallbackQueryHandler(handle_callback)],
                 PAGAMENTO: [CallbackQueryHandler(handle_callback)],
+                IMPORTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_importo)],
                 FOTO_RICEVUTA: [
                     CallbackQueryHandler(handle_callback),
                     MessageHandler(filters.PHOTO, handle_photo)
                 ],
+                NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)],
             },
             fallbacks=[CommandHandler("cancel", cancel)],
         )
@@ -1387,7 +1656,7 @@ def main():
         # Aggiungi gli handler
         application.add_handler(conv_handler)
         application.add_handler(modifica_handler)
-        application.add_handler(CommandHandler("nuovo", start))  # Cambiato per avviare registrazione
+        application.add_handler(CommandHandler("start", help_command))  # /start mostra help
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("cerca", cerca_cliente))
         application.add_handler(CommandHandler("mostra_clienti", mostra_clienti))
