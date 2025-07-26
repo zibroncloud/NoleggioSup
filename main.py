@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 1.0
+Versione: 1.4 - TUTTI I PULSANTI IMPLEMENTATI
 """
 
 import os
@@ -156,15 +156,16 @@ async def get_associato(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     """Riceve lo status associato e chiede il tipo di noleggio"""
     associato = update.message.text
     if associato not in ['SÌ', 'NO']:
+        keyboard = [['SÌ', 'NO']]
         await update.message.reply_text(
-            "❌ Rispondi con SÌ o NO:",
-            reply_markup=ReplyKeyboardMarkup([['SÌ', 'NO']], one_time_keyboard=True, resize_keyboard=True)
+            "❌ Seleziona SÌ o NO con i pulsanti:",
+            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return ASSOCIATO
     
     context.user_data['associato'] = associato
     
-    keyboard = [['SUP', 'KAYAK', 'LETTINO'], ['PHONEBAG', 'DRYBAG']]
+    keyboard = [['SUP', 'KAYAK'], ['LETTINO'], ['PHONEBAG', 'DRYBAG']]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
     await update.message.reply_text(
@@ -177,9 +178,9 @@ async def get_tipo_noleggio(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     """Gestisce il tipo di noleggio"""
     tipo = update.message.text
     if tipo not in ['SUP', 'KAYAK', 'LETTINO', 'PHONEBAG', 'DRYBAG']:
-        keyboard = [['SUP', 'KAYAK', 'LETTINO'], ['PHONEBAG', 'DRYBAG']]
+        keyboard = [['SUP', 'KAYAK'], ['LETTINO'], ['PHONEBAG', 'DRYBAG']]
         await update.message.reply_text(
-            "❌ Seleziona un'opzione valida:",
+            "❌ Seleziona un'opzione valida con i pulsanti:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return TIPO_NOLEGGIO
@@ -188,10 +189,11 @@ async def get_tipo_noleggio(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     
     if tipo == 'SUP':
         keyboard = [
-            ['All-around', 'Touring', 'Race'],
-            ['Surf', 'Yoga', 'Whitewater'],
-            ['Windsurf', 'Foil', 'Multi'],
-            ['Fishing']
+            ['All-around', 'Touring'],
+            ['Race', 'Surf'],
+            ['Yoga', 'Whitewater'],
+            ['Windsurf', 'Foil'],
+            ['Multi', 'Fishing']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         await update.message.reply_text(
@@ -228,13 +230,14 @@ async def get_dettagli_sup(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     
     if dettagli not in opzioni_sup:
         keyboard = [
-            ['All-around', 'Touring', 'Race'],
-            ['Surf', 'Yoga', 'Whitewater'],
-            ['Windsurf', 'Foil', 'Multi'],
-            ['Fishing']
+            ['All-around', 'Touring'],
+            ['Race', 'Surf'],
+            ['Yoga', 'Whitewater'],
+            ['Windsurf', 'Foil'],
+            ['Multi', 'Fishing']
         ]
         await update.message.reply_text(
-            "❌ Seleziona un'opzione valida:",
+            "❌ Seleziona un'opzione valida con i pulsanti:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return DETTAGLI_SUP
@@ -248,7 +251,7 @@ async def get_dettagli_lettino(update: Update, context: ContextTypes.DEFAULT_TYP
     if dettagli not in ['Pineta', 'Squero']:
         keyboard = [['Pineta', 'Squero']]
         await update.message.reply_text(
-            "❌ Seleziona Pineta o Squero:",
+            "❌ Seleziona Pineta o Squero con i pulsanti:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return DETTAGLI_LETTINO
@@ -335,26 +338,26 @@ async def get_tempo_input(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     """Riceve il tempo di noleggio"""
     tempo_text = update.message.text
     
-    # Valida il formato (deve essere Xh o X,5h)
-    try:
-        if tempo_text.endswith('h'):
-            tempo_num = tempo_text[:-1].replace(',', '.')
-            tempo = float(tempo_num)
-            if tempo < 1 or tempo > 12 or (tempo != int(tempo) and tempo != int(tempo) + 0.5):
-                raise ValueError
-        else:
-            raise ValueError
-    except ValueError:
-        # Ricrea la tastiera
-        keyboard = []
-        for h in range(1, 13):
-            row = [f"{h}h"]
-            if h < 12:
-                row.append(f"{h},5h")
-            keyboard.append(row)
+    # Lista completa di tempi validi
+    tempi_validi = []
+    for h in range(1, 13):
+        tempi_validi.append(f"{h}h")
+        if h < 12:
+            tempi_validi.append(f"{h},5h")
+    
+    if tempo_text not in tempi_validi:
+        # Ricrea la tastiera se l'input non è valido
+        keyboard = [
+            ['1h', '1,5h', '2h', '2,5h'],
+            ['3h', '3,5h', '4h', '4,5h'],
+            ['5h', '5,5h', '6h', '6,5h'],
+            ['7h', '7,5h', '8h', '8,5h'],
+            ['9h', '9,5h', '10h', '10,5h'],
+            ['11h', '11,5h', '12h']
+        ]
         
         await update.message.reply_text(
-            "❌ Seleziona un tempo valido dalla tastiera:",
+            "❌ Seleziona un tempo valido con i pulsanti:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return TEMPO
@@ -376,7 +379,7 @@ async def get_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     if pagamento not in ['CARD', 'BONIFICO']:
         keyboard = [['CARD', 'BONIFICO']]
         await update.message.reply_text(
-            "❌ Seleziona CARD o BONIFICO:",
+            "❌ Seleziona CARD o BONIFICO con i pulsanti:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return PAGAMENTO
@@ -399,7 +402,7 @@ async def get_foto_ricevuta(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if risposta not in ['SÌ', 'NO']:
         keyboard = [['SÌ', 'NO']]
         await update.message.reply_text(
-            "❌ Rispondi con SÌ o NO:",
+            "❌ Seleziona SÌ o NO con i pulsanti:",
             reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         )
         return FOTO_RICEVUTA
@@ -471,7 +474,7 @@ async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         # Messaggio di conferma
         messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA!**
+✅ **REGISTRAZIONE COMPLETATA! (v.1.4)**
 
 📅 Data: {registrazione['data']}
 👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
@@ -980,12 +983,14 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 **Come funziona:**
 1. Usa /start per registrare un noleggio
-2. Segui la procedura guidata inserendo tutti i dati
+2. Segui la procedura guidata con i PULSANTI (non scrivere!)
 3. Puoi allegare foto della ricevuta (opzionale)
 4. Usa /cerca per trovare clienti specifici
 5. Usa /mostra_clienti per vedere tutti i clienti
 6. Usa /modifica per correggere errori
 7. Usa /export per scaricare tutti i dati in CSV
+
+**⚠️ IMPORTANTE: Usa sempre i PULSANTI, non scrivere le risposte!**
 
 **Ricerca avanzata con /cerca:**
 • Cognome/Nome: `/cerca Rossi`, `/cerca Mario`
@@ -1005,6 +1010,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 **Autore:** Dino Bronzi
 📅 **Creato:** 26 Luglio 2025
+🔄 **Versione:** 1.4 - Tutti i pulsanti implementati
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     await update.message.reply_text(help_text)
