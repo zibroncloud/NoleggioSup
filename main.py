@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 1.4 - TUTTI I PULSANTI IMPLEMENTATI
+Versione: 1.5 - INLINE BUTTONS (pulsanti sotto i messaggi)
 """
 
 import os
@@ -99,8 +99,14 @@ async def get_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Riceve il nome e chiede il tipo di documento"""
     context.user_data['nome'] = update.message.text
     
-    keyboard = [['C.I.', 'PAT'], ['PASS', 'ALTRO']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    # Inline buttons per il documento
+    keyboard = [
+        [InlineKeyboardButton("C.I.", callback_data="doc_CI")],
+        [InlineKeyboardButton("PAT", callback_data="doc_PAT")],
+        [InlineKeyboardButton("PASS", callback_data="doc_PASS")],
+        [InlineKeyboardButton("ALTRO", callback_data="doc_ALTRO")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "Seleziona il tipo di DOCUMENTO:",
@@ -108,7 +114,198 @@ async def get_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     )
     return DOCUMENTO
 
-async def get_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gestisce tutti i callback dei pulsanti inline"""
+    query = update.callback_query
+    await query.answer()  # Acknowledge the callback
+    
+    data = query.data
+    
+    # Documento
+    if data.startswith("doc_"):
+        documento = data.replace("doc_", "").replace("_", ".")
+        context.user_data['documento'] = documento
+        
+        await query.edit_message_text(
+            f"✅ Documento selezionato: {documento}\n\n"
+            f"Inserisci il NUMERO del documento {documento}:"
+        )
+        return NUMERO_DOCUMENTO
+    
+    # Associato
+    elif data.startswith("assoc_"):
+        associato = "SÌ" if data == "assoc_SI" else "NO"
+        context.user_data['associato'] = associato
+        
+        # Inline buttons per tipo noleggio
+        keyboard = [
+            [InlineKeyboardButton("🏄‍♂️ SUP", callback_data="tipo_SUP")],
+            [InlineKeyboardButton("🚣‍♂️ KAYAK", callback_data="tipo_KAYAK")],
+            [InlineKeyboardButton("🏖️ LETTINO", callback_data="tipo_LETTINO")],
+            [InlineKeyboardButton("📱 PHONEBAG", callback_data="tipo_PHONEBAG")],
+            [InlineKeyboardButton("🎒 DRYBAG", callback_data="tipo_DRYBAG")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"✅ Associato: {associato}\n\n"
+            "Cosa viene noleggiato?",
+            reply_markup=reply_markup
+        )
+        return TIPO_NOLEGGIO
+    
+    # Tipo noleggio
+    elif data.startswith("tipo_"):
+        tipo = data.replace("tipo_", "")
+        context.user_data['tipo_noleggio'] = tipo
+        
+        if tipo == 'SUP':
+            keyboard = [
+                [InlineKeyboardButton("All-around", callback_data="sup_All-around")],
+                [InlineKeyboardButton("Touring", callback_data="sup_Touring")],
+                [InlineKeyboardButton("Race", callback_data="sup_Race")],
+                [InlineKeyboardButton("Surf", callback_data="sup_Surf")],
+                [InlineKeyboardButton("Yoga", callback_data="sup_Yoga")],
+                [InlineKeyboardButton("Whitewater", callback_data="sup_Whitewater")],
+                [InlineKeyboardButton("Windsurf", callback_data="sup_Windsurf")],
+                [InlineKeyboardButton("Foil", callback_data="sup_Foil")],
+                [InlineKeyboardButton("Multi", callback_data="sup_Multi")],
+                [InlineKeyboardButton("Fishing", callback_data="sup_Fishing")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"✅ Tipo noleggio: {tipo}\n\n"
+                "Seleziona il tipo di SUP:",
+                reply_markup=reply_markup
+            )
+            return DETTAGLI_SUP
+            
+        elif tipo == 'LETTINO':
+            keyboard = [
+                [InlineKeyboardButton("🌲 Pineta", callback_data="lettino_Pineta")],
+                [InlineKeyboardButton("🚤 Squero", callback_data="lettino_Squero")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
+            await query.edit_message_text(
+                f"✅ Tipo noleggio: {tipo}\n\n"
+                "Seleziona il tipo di LETTINO:",
+                reply_markup=reply_markup
+            )
+            return DETTAGLI_LETTINO
+            
+        elif tipo in ['PHONEBAG', 'DRYBAG']:
+            await query.edit_message_text(
+                f"✅ Tipo noleggio: {tipo}\n\n"
+                f"Inserisci il numero del {tipo} (0-99):"
+            )
+            return LETTINO_NUMERO
+            
+        else:  # KAYAK
+            context.user_data['dettagli'] = 'Standard'
+            return await show_tempo_buttons(query, context)
+    
+    # SUP dettagli
+    elif data.startswith("sup_"):
+        dettagli = data.replace("sup_", "")
+        context.user_data['dettagli'] = dettagli
+        return await show_tempo_buttons(query, context)
+    
+    # Lettino dettagli
+    elif data.startswith("lettino_"):
+        dettagli = data.replace("lettino_", "")
+        context.user_data['dettagli'] = dettagli
+        
+        associato = context.user_data['associato']
+        if associato == 'SÌ':
+            await query.edit_message_text(
+                f"✅ Lettino: {dettagli}\n\n"
+                "Inserisci la LETTERA del lettino (A-Z):"
+            )
+        else:
+            await query.edit_message_text(
+                f"✅ Lettino: {dettagli}\n\n"
+                "Inserisci il NUMERO del lettino (0-99):"
+            )
+        return LETTINO_NUMERO
+    
+    # Tempo
+    elif data.startswith("tempo_"):
+        tempo = data.replace("tempo_", "")
+        context.user_data['tempo'] = tempo
+        
+        keyboard = [
+            [InlineKeyboardButton("💳 CARD", callback_data="pag_CARD")],
+            [InlineKeyboardButton("🏦 BONIFICO", callback_data="pag_BONIFICO")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"✅ Tempo: {tempo}\n\n"
+            "Seleziona il tipo di PAGAMENTO:",
+            reply_markup=reply_markup
+        )
+        return PAGAMENTO
+    
+    # Pagamento
+    elif data.startswith("pag_"):
+        pagamento = data.replace("pag_", "")
+        context.user_data['pagamento'] = pagamento
+        
+        keyboard = [
+            [InlineKeyboardButton("✅ SÌ", callback_data="foto_SI")],
+            [InlineKeyboardButton("❌ NO", callback_data="foto_NO")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        await query.edit_message_text(
+            f"✅ Pagamento: {pagamento}\n\n"
+            "Vuoi allegare la foto della ricevuta?",
+            reply_markup=reply_markup
+        )
+        return FOTO_RICEVUTA
+    
+    # Foto ricevuta
+    elif data.startswith("foto_"):
+        if data == "foto_SI":
+            await query.edit_message_text(
+                "📸 Invia la foto della ricevuta:"
+            )
+            context.user_data['attende_foto'] = True
+            return FOTO_RICEVUTA
+        else:
+            context.user_data['foto_ricevuta'] = None
+            await query.edit_message_text("✅ Nessuna foto allegata.")
+            return await salva_registrazione_callback(query, context)
+    
+    return ConversationHandler.END
+
+async def show_tempo_buttons(query, context):
+    """Mostra i pulsanti per la selezione del tempo"""
+    keyboard = [
+        [InlineKeyboardButton("1h", callback_data="tempo_1h"), InlineKeyboardButton("1,5h", callback_data="tempo_1,5h")],
+        [InlineKeyboardButton("2h", callback_data="tempo_2h"), InlineKeyboardButton("2,5h", callback_data="tempo_2,5h")],
+        [InlineKeyboardButton("3h", callback_data="tempo_3h"), InlineKeyboardButton("3,5h", callback_data="tempo_3,5h")],
+        [InlineKeyboardButton("4h", callback_data="tempo_4h"), InlineKeyboardButton("4,5h", callback_data="tempo_4,5h")],
+        [InlineKeyboardButton("5h", callback_data="tempo_5h"), InlineKeyboardButton("5,5h", callback_data="tempo_5,5h")],
+        [InlineKeyboardButton("6h", callback_data="tempo_6h"), InlineKeyboardButton("6,5h", callback_data="tempo_6,5h")],
+        [InlineKeyboardButton("7h", callback_data="tempo_7h"), InlineKeyboardButton("7,5h", callback_data="tempo_7,5h")],
+        [InlineKeyboardButton("8h", callback_data="tempo_8h"), InlineKeyboardButton("8,5h", callback_data="tempo_8,5h")],
+        [InlineKeyboardButton("9h", callback_data="tempo_9h"), InlineKeyboardButton("9,5h", callback_data="tempo_9,5h")],
+        [InlineKeyboardButton("10h", callback_data="tempo_10h"), InlineKeyboardButton("10,5h", callback_data="tempo_10,5h")],
+        [InlineKeyboardButton("11h", callback_data="tempo_11h"), InlineKeyboardButton("11,5h", callback_data="tempo_11,5h")],
+        [InlineKeyboardButton("12h", callback_data="tempo_12h")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    dettagli = context.user_data.get('dettagli', 'Standard')
+    await query.edit_message_text(
+        f"✅ Dettagli: {dettagli}\n\n"
+        "Seleziona il tempo di noleggio:",
+        reply_markup=reply_markup
+    )
+    return TEMPO
     """Riceve il tipo di documento e chiede il numero"""
     documento = update.message.text
     if documento not in ['C.I.', 'PAT', 'PASS', 'ALTRO']:
@@ -143,8 +340,12 @@ async def get_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     """Riceve il telefono e chiede se è associato"""
     context.user_data['telefono'] = update.message.text
     
-    keyboard = [['SÌ', 'NO']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    # Inline buttons per associato
+    keyboard = [
+        [InlineKeyboardButton("✅ SÌ", callback_data="assoc_SI")],
+        [InlineKeyboardButton("❌ NO", callback_data="assoc_NO")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         "La persona è un ASSOCIATO?",
@@ -152,7 +353,67 @@ async def get_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
     return ASSOCIATO
 
-async def get_associato(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Salva la registrazione quando viene da callback"""
+    try:
+        # Prepara i dati per il salvataggio
+        registrazione = {
+            'data': context.user_data['data'],
+            'cognome': context.user_data['cognome'],
+            'nome': context.user_data['nome'],
+            'documento': context.user_data['documento'],
+            'numero_documento': context.user_data['numero_documento'],
+            'telefono': context.user_data['telefono'],
+            'associato': context.user_data['associato'],
+            'tipo_noleggio': context.user_data['tipo_noleggio'],
+            'dettagli': context.user_data.get('dettagli', ''),
+            'numero': context.user_data.get('numero', ''),
+            'tempo': context.user_data['tempo'],
+            'pagamento': context.user_data['pagamento'],
+            'foto_ricevuta': context.user_data.get('foto_ricevuta'),
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # Salva nel database
+        bot_instance.noleggi.append(registrazione)
+        bot_instance.save_data()
+        
+        # Messaggio di conferma
+        messaggio = f"""
+✅ **REGISTRAZIONE COMPLETATA! (v.1.5)**
+
+📅 Data: {registrazione['data']}
+👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
+📄 Documento: {registrazione['documento']} - {registrazione['numero_documento']}
+📞 Telefono: {registrazione['telefono']}
+🏅 Associato: {registrazione['associato']}
+🏄‍♂️ Noleggio: {registrazione['tipo_noleggio']}
+📝 Dettagli: {registrazione['dettagli']}
+🔢 Numero: {registrazione['numero']}
+⏱️ Tempo: {registrazione['tempo']}
+💳 Pagamento: {registrazione['pagamento']}
+📸 Foto ricevuta: {'✅ Presente' if registrazione['foto_ricevuta'] else '❌ Non allegata'}
+
+💡 **Comandi utili:**
+• /start - Nuova registrazione
+• /cerca {registrazione['cognome']} - Trova questo cliente
+• /mostra_clienti - Vedi tutti i clienti
+• /export - Esporta dati CSV
+        """
+        
+        await query.message.reply_text(messaggio)
+        
+        # Pulisce i dati utente
+        context.user_data.clear()
+        return ConversationHandler.END
+        
+    except Exception as e:
+        logger.error(f"Errore nel salvataggio: {e}")
+        await query.message.reply_text(
+            "❌ Errore nel salvataggio dei dati. Riprova più tardi."
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
     """Riceve lo status associato e chiede il tipo di noleggio"""
     associato = update.message.text
     if associato not in ['SÌ', 'NO']:
@@ -1010,7 +1271,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 **Autore:** Dino Bronzi
 📅 **Creato:** 26 Luglio 2025
-🔄 **Versione:** 1.4 - Tutti i pulsanti implementati
+🔄 **Versione:** 1.5 - INLINE BUTTONS che funzionano sempre!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     await update.message.reply_text(help_text)
@@ -1036,18 +1297,18 @@ def main():
                 DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_data)],
                 COGNOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_cognome)],
                 NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_nome)],
-                DOCUMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_documento)],
+                DOCUMENTO: [CallbackQueryHandler(handle_callback)],
                 NUMERO_DOCUMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numero_documento)],
                 TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_telefono)],
-                ASSOCIATO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_associato)],
-                TIPO_NOLEGGIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_tipo_noleggio)],
-                DETTAGLI_SUP: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_dettagli_sup)],
-                DETTAGLI_LETTINO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_dettagli_lettino)],
+                ASSOCIATO: [CallbackQueryHandler(handle_callback)],
+                TIPO_NOLEGGIO: [CallbackQueryHandler(handle_callback)],
+                DETTAGLI_SUP: [CallbackQueryHandler(handle_callback)],
+                DETTAGLI_LETTINO: [CallbackQueryHandler(handle_callback)],
                 LETTINO_NUMERO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_lettino_numero)],
-                TEMPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_tempo_input)],
-                PAGAMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_pagamento)],
+                TEMPO: [CallbackQueryHandler(handle_callback)],
+                PAGAMENTO: [CallbackQueryHandler(handle_callback)],
                 FOTO_RICEVUTA: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, get_foto_ricevuta),
+                    CallbackQueryHandler(handle_callback),
                     MessageHandler(filters.PHOTO, handle_photo)
                 ],
             },
