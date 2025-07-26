@@ -402,15 +402,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return IMPORTO
     
     # Foto ricevuta
-    elif data.startswith("foto_"):
-        if data == "foto_SI":
-            await query.edit_message_text("📸 Invia foto ricevuta:")
-            context.user_data['attende_foto'] = True
-            return FOTO_RICEVUTA
-        else:
-            context.user_data['foto_ricevuta'] = None
-            await query.edit_message_text("✅ Nessuna foto\n\nAggiungi NOTE? (o 'skip'):")
-            return NOTE
+    elif data == "foto_SI":
+        await query.edit_message_text("📸 Invia foto ricevuta:")
+        context.user_data['attende_foto'] = True
+        return FOTO_RICEVUTA
+    elif data == "foto_NO":
+        context.user_data['foto_ricevuta'] = None
+        await query.edit_message_text("✅ Nessuna foto\n\nAggiungi NOTE? (o 'skip'):")
+        return NOTE
     
     return ConversationHandler.END
 
