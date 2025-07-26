@@ -1062,7 +1062,7 @@ def main():
         # Aggiungi gli handler
         application.add_handler(conv_handler)
         application.add_handler(modifica_handler)
-        application.add_handler(CommandHandler("nuovo", help_command))  # Alias per start
+        application.add_handler(CommandHandler("nuovo", start))  # Cambiato per avviare registrazione
         application.add_handler(CommandHandler("help", help_command))
         application.add_handler(CommandHandler("cerca", cerca_cliente))
         application.add_handler(CommandHandler("mostra_clienti", mostra_clienti))
