@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 1.9 - HOTFIX errore run_polling parameters
+Versione: 2.0 - BASTA PERDERE TEMPO! Layout semplice che FUNZIONA
 """
 
 import os
@@ -236,16 +236,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data['tempo'] = tempo
         
         keyboard = [
-            [InlineKeyboardButton("💳 CARD", callback_data="pag_CARD")],
+            [InlineKeyboardButton("💳 CARTA", callback_data="pag_CARD")],
             [InlineKeyboardButton("🏦 BONIFICO", callback_data="pag_BONIFICO")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.edit_message_text(
-            f"✅ Tempo: {tempo}\n\n"
-            "Seleziona il tipo di PAGAMENTO:",
-            reply_markup=reply_markup
-        )
+        try:
+            await query.edit_message_text(
+                f"✅ Tempo: {tempo}\n\n"
+                "💰 Seleziona il tipo di PAGAMENTO:",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Errore pagamento buttons: {e}")
+            await query.message.reply_text(
+                f"✅ Tempo: {tempo}\n\n"
+                "💰 Seleziona il tipo di PAGAMENTO:",
+                reply_markup=reply_markup
+            )
         return PAGAMENTO
     
     # Pagamento
@@ -254,16 +262,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data['pagamento'] = pagamento
         
         keyboard = [
-            [InlineKeyboardButton("✅ SÌ", callback_data="foto_SI")],
-            [InlineKeyboardButton("❌ NO", callback_data="foto_NO")]
+            [InlineKeyboardButton("📸 SÌ - Allego foto", callback_data="foto_SI")],
+            [InlineKeyboardButton("❌ NO - Nessuna foto", callback_data="foto_NO")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.edit_message_text(
-            f"✅ Pagamento: {pagamento}\n\n"
-            "Vuoi allegare la foto della ricevuta?",
-            reply_markup=reply_markup
-        )
+        try:
+            await query.edit_message_text(
+                f"✅ Pagamento: {pagamento}\n\n"
+                "📷 Vuoi allegare la foto della ricevuta?",
+                reply_markup=reply_markup
+            )
+        except Exception as e:
+            logger.error(f"Errore foto buttons: {e}")
+            await query.message.reply_text(
+                f"✅ Pagamento: {pagamento}\n\n"
+                "📷 Vuoi allegare la foto della ricevuta?",
+                reply_markup=reply_markup
+            )
         return FOTO_RICEVUTA
     
     # Foto ricevuta
@@ -282,16 +298,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 async def show_tempo_buttons(query, context):
-    """Mostra i pulsanti per la selezione del tempo - Progressione logica 1-8h"""
+    """Mostra i pulsanti tempo - LAYOUT SEMPLICE CHE FUNZIONA (1-8h + mezz'ore)"""
+    # Layout UNA COLONNA - funziona sempre su mobile e web
     keyboard = [
-        [InlineKeyboardButton("1h", callback_data="tempo_1h"), InlineKeyboardButton("1,5h", callback_data="tempo_1,5h")],
-        [InlineKeyboardButton("2h", callback_data="tempo_2h"), InlineKeyboardButton("2,5h", callback_data="tempo_2,5h")],
-        [InlineKeyboardButton("3h", callback_data="tempo_3h"), InlineKeyboardButton("3,5h", callback_data="tempo_3,5h")],
-        [InlineKeyboardButton("4h", callback_data="tempo_4h"), InlineKeyboardButton("4,5h", callback_data="tempo_4,5h")],
-        [InlineKeyboardButton("5h", callback_data="tempo_5h"), InlineKeyboardButton("5,5h", callback_data="tempo_5,5h")],
-        [InlineKeyboardButton("6h", callback_data="tempo_6h"), InlineKeyboardButton("6,5h", callback_data="tempo_6,5h")],
-        [InlineKeyboardButton("7h", callback_data="tempo_7h"), InlineKeyboardButton("7,5h", callback_data="tempo_7,5h")],
-        [InlineKeyboardButton("8h", callback_data="tempo_8h")]
+        [InlineKeyboardButton("⏱️ 1 ora", callback_data="tempo_1h")],
+        [InlineKeyboardButton("⏱️ 1,5 ore", callback_data="tempo_1,5h")],
+        [InlineKeyboardButton("⏱️ 2 ore", callback_data="tempo_2h")],
+        [InlineKeyboardButton("⏱️ 2,5 ore", callback_data="tempo_2,5h")],
+        [InlineKeyboardButton("⏱️ 3 ore", callback_data="tempo_3h")],
+        [InlineKeyboardButton("⏱️ 3,5 ore", callback_data="tempo_3,5h")],
+        [InlineKeyboardButton("⏱️ 4 ore", callback_data="tempo_4h")],
+        [InlineKeyboardButton("⏱️ 4,5 ore", callback_data="tempo_4,5h")],
+        [InlineKeyboardButton("⏱️ 5 ore", callback_data="tempo_5h")],
+        [InlineKeyboardButton("⏱️ 5,5 ore", callback_data="tempo_5,5h")],
+        [InlineKeyboardButton("⏱️ 6 ore", callback_data="tempo_6h")],
+        [InlineKeyboardButton("⏱️ 6,5 ore", callback_data="tempo_6,5h")],
+        [InlineKeyboardButton("⏱️ 7 ore", callback_data="tempo_7h")],
+        [InlineKeyboardButton("⏱️ 7,5 ore", callback_data="tempo_7,5h")],
+        [InlineKeyboardButton("⏱️ 8 ore", callback_data="tempo_8h")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -299,16 +323,16 @@ async def show_tempo_buttons(query, context):
     
     try:
         await query.edit_message_text(
-            f"✅ Dettagli: {dettagli}\n\n"
-            "Seleziona il tempo di noleggio (1-8h):",
+            f"✅ {dettagli}\n\n"
+            "🕐 Seleziona il tempo di noleggio:",
             reply_markup=reply_markup
         )
     except Exception as e:
-        logger.error(f"Errore mostrando pulsanti tempo: {e}")
-        # Fallback: invia nuovo messaggio se edit fallisce
+        logger.error(f"Errore tempo buttons: {e}")
+        # Se edit fallisce, manda nuovo messaggio
         await query.message.reply_text(
-            f"✅ Dettagli: {dettagli}\n\n"
-            "Seleziona il tempo di noleggio (1-8h):",
+            f"✅ {dettagli}\n\n"
+            "🕐 Seleziona il tempo di noleggio:",
             reply_markup=reply_markup
         )
     
@@ -387,7 +411,7 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
         
         # Messaggio di conferma
         messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA! (v.1.8)**
+✅ **REGISTRAZIONE COMPLETATA! (v.1.9)**
 
 📅 Data: {registrazione['data']}
 👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
@@ -1293,7 +1317,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 **Autore:** Dino Bronzi
 📅 **Creato:** 26 Luglio 2025
-🔄 **Versione:** 1.8 - Tempo progressivo logico
+🔄 **Versione:** 1.9 - HOTFIX parametri run_polling
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     await update.message.reply_text(help_text)
