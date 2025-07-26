@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 1.8 - Tempo buttons in progressione logica (1h, 1.5h, 2h...)
+Versione: 1.9 - HOTFIX errore run_polling parameters
 """
 
 import os
@@ -1361,21 +1361,15 @@ def main():
         # IMPORTANTE: Aggiungi error handler
         application.add_error_handler(error_handler)
         
-        # Avvia il bot con configurazioni robuste
-        print("🏄‍♂️ Bot SUP Rental v.1.6 avviato!")
+        # Avvia il bot con configurazioni corrette
+        print("🏄‍♂️ Bot SUP Rental v.1.9 avviato!")
         print("📱 Usa /start per iniziare una registrazione")
         print("❌ Premi Ctrl+C per fermare il bot")
         
-        # Configurazioni più robuste per evitare errori di rete
+        # Configurazioni semplici e compatibili
         application.run_polling(
             drop_pending_updates=True,  # Ignora messaggi pendenti al riavvio
-            allowed_updates=Update.ALL_TYPES,  # Gestisce tutti i tipi di update
-            timeout=20,  # Timeout per le richieste
-            bootstrap_retries=3,  # Retry in caso di errori
-            read_timeout=10,  # Timeout di lettura
-            write_timeout=10,  # Timeout di scrittura
-            connect_timeout=10,  # Timeout di connessione
-            pool_timeout=10  # Timeout del pool
+            allowed_updates=Update.ALL_TYPES  # Gestisce tutti i tipi di update
         )
         
     except Exception as e:
