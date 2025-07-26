@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 1.5 - INLINE BUTTONS (pulsanti sotto i messaggi)
+Versione: 1.6 - ERROR HANDLERS + Bug Fix
 """
 
 import os
