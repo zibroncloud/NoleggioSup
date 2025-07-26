@@ -22,8 +22,8 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
 logger = logging.getLogger(__name__)
 
 # Stati della conversazione
-(DATA, NOME, COGNOME, DOCUMENTO, TELEFONO, ASSOCIATO, TIPO_NOLEGGIO, 
- DETTAGLI_SUP, DETTAGLI_LETTINO, LETTINO_NUMERO, TEMPO, PAGAMENTO, FOTO_RICEVUTA) = range(13)
+(DATA, COGNOME, NOME, DOCUMENTO, NUMERO_DOCUMENTO, TELEFONO, ASSOCIATO, TIPO_NOLEGGIO, 
+ DETTAGLI_SUP, DETTAGLI_LETTINO, LETTINO_NUMERO, TEMPO, PAGAMENTO, FOTO_RICEVUTA) = range(14)
 
 # File per salvare i dati e le foto
 DATA_FILE = 'noleggi.json'
@@ -69,38 +69,35 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text(
         "🏄‍♂️ **Benvenuto nel sistema di noleggio SUP!**\n\n"
         "Iniziamo la registrazione del noleggio.\n"
-        "Per prima cosa, inserisci la **data** (formato: DD/MM/YYYY):\n\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "👨‍💻 Bot by Dino Bronzi - 26/07/2025\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        "Per prima cosa, inserisci la **data** (formato: DD/MM/YYYY):"
     )
     return DATA
 
 async def get_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve la data e chiede il nome"""
+    """Riceve la data e chiede il cognome"""
     try:
         data_text = update.message.text
         # Valida il formato della data
         datetime.strptime(data_text, '%d/%m/%Y')
         context.user_data['data'] = data_text
         
-        await update.message.reply_text("Perfetto! Ora inserisci il NOME:")
-        return NOME
+        await update.message.reply_text("Perfetto! Ora inserisci il COGNOME:")
+        return COGNOME
     except ValueError:
         await update.message.reply_text(
             "❌ Formato data non valido. Usa il formato DD/MM/YYYY (es: 25/12/2024):"
         )
         return DATA
 
-async def get_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il nome e chiede il cognome"""
-    context.user_data['nome'] = update.message.text
-    await update.message.reply_text("Ottimo! Ora inserisci il COGNOME:")
-    return COGNOME
-
 async def get_cognome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il cognome e chiede il tipo di documento"""
+    """Riceve il cognome e chiede il nome"""
     context.user_data['cognome'] = update.message.text
+    await update.message.reply_text("Ottimo! Ora inserisci il NOME:")
+    return NOME
+
+async def get_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Riceve il nome e chiede il tipo di documento"""
+    context.user_data['nome'] = update.message.text
     
     keyboard = [['C.I.', 'PAT'], ['PASS', 'ALTRO']]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
@@ -112,7 +109,7 @@ async def get_cognome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     return DOCUMENTO
 
 async def get_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il documento e chiede il telefono"""
+    """Riceve il tipo di documento e chiede il numero"""
     documento = update.message.text
     if documento not in ['C.I.', 'PAT', 'PASS', 'ALTRO']:
         await update.message.reply_text(
@@ -124,9 +121,22 @@ async def get_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> i
     
     context.user_data['documento'] = documento
     await update.message.reply_text(
-        "Inserisci il numero di TELEFONO:",
+        f"Inserisci il NUMERO del documento {documento}:",
         reply_markup=ReplyKeyboardRemove()
     )
+    return NUMERO_DOCUMENTO
+
+async def get_numero_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Riceve il numero di documento e chiede il telefono"""
+    numero_doc = update.message.text.strip()
+    if len(numero_doc) < 3:
+        await update.message.reply_text(
+            "❌ Il numero del documento deve essere di almeno 3 caratteri:"
+        )
+        return NUMERO_DOCUMENTO
+    
+    context.user_data['numero_documento'] = numero_doc
+    await update.message.reply_text("Inserisci il numero di TELEFONO:")
     return TELEFONO
 
 async def get_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -303,13 +313,15 @@ async def get_lettino_numero(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def get_tempo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Chiede il tempo di noleggio"""
-    # Crea tastiera con opzioni di tempo
-    keyboard = []
-    for h in range(1, 13):
-        row = [f"{h}h"]
-        if h < 12:
-            row.append(f"{h},5h")
-        keyboard.append(row)
+    # Crea tastiera con opzioni di tempo (più compatta)
+    keyboard = [
+        ['1h', '1,5h', '2h', '2,5h'],
+        ['3h', '3,5h', '4h', '4,5h'],
+        ['5h', '5,5h', '6h', '6,5h'],
+        ['7h', '7,5h', '8h', '8,5h'],
+        ['9h', '9,5h', '10h', '10,5h'],
+        ['11h', '11,5h', '12h']
+    ]
     
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
     
@@ -438,9 +450,10 @@ async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE
         # Prepara i dati per il salvataggio
         registrazione = {
             'data': context.user_data['data'],
-            'nome': context.user_data['nome'],
             'cognome': context.user_data['cognome'],
+            'nome': context.user_data['nome'],
             'documento': context.user_data['documento'],
+            'numero_documento': context.user_data['numero_documento'],
             'telefono': context.user_data['telefono'],
             'associato': context.user_data['associato'],
             'tipo_noleggio': context.user_data['tipo_noleggio'],
@@ -461,8 +474,8 @@ async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE
 ✅ **REGISTRAZIONE COMPLETATA!**
 
 📅 Data: {registrazione['data']}
-👤 Cliente: {registrazione['nome']} {registrazione['cognome']}
-📄 Documento: {registrazione['documento']}
+👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
+📄 Documento: {registrazione['documento']} - {registrazione['numero_documento']}
 📞 Telefono: {registrazione['telefono']}
 🏅 Associato: {registrazione['associato']}
 🏄‍♂️ Noleggio: {registrazione['tipo_noleggio']}
@@ -474,7 +487,7 @@ async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 💡 **Comandi utili:**
 • /start - Nuova registrazione
-• /cerca {registrazione['nome']} - Trova questo cliente
+• /cerca {registrazione['cognome']} - Trova questo cliente
 • /mostra_clienti - Vedi tutti i clienti
 • /export - Esporta dati CSV
         """
@@ -508,7 +521,7 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         # Crea il CSV
         with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
             fieldnames = [
-                'Data', 'Nome', 'Cognome', 'Documento', 'Telefono', 'Associato',
+                'Data', 'Cognome', 'Nome', 'Documento', 'Numero_Documento', 'Telefono', 'Associato',
                 'Tipo_Noleggio', 'Dettagli', 'Numero', 'Tempo', 'Pagamento', 
                 'Foto_Ricevuta', 'Timestamp'
             ]
@@ -518,9 +531,10 @@ async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             for registro in bot_instance.noleggi:
                 writer.writerow({
                     'Data': registro['data'],
-                    'Nome': registro['nome'],
-                    'Cognome': registro['cognome'],
+                    'Cognome': registro.get('cognome', registro.get('nome', '')),  # Retrocompatibilità
+                    'Nome': registro.get('nome', registro.get('cognome', '')),     # Retrocompatibilità
                     'Documento': registro['documento'],
+                    'Numero_Documento': registro.get('numero_documento', ''),
                     'Telefono': registro['telefono'],
                     'Associato': registro['associato'],
                     'Tipo_Noleggio': registro['tipo_noleggio'],
@@ -561,9 +575,10 @@ async def cerca_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "🔍 **CERCA CLIENTE**\n\n"
             "Usa: `/cerca [termine]`\n\n"
             "**Puoi cercare per:**\n"
-            "• Nome: `/cerca Mario`\n"
             "• Cognome: `/cerca Rossi`\n"
+            "• Nome: `/cerca Mario`\n"
             "• Telefono: `/cerca 3331234567`\n"
+            "• Numero documento: `/cerca AB123456`\n"
             "• Tipo noleggio: `/cerca SUP`, `/cerca KAYAK`\n"
             "• Numero specifico: `/cerca drybag 9`, `/cerca lettino A`\n\n"
             "💡 **Esempi avanzati:**\n"
@@ -575,10 +590,11 @@ async def cerca_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     # Cerca nelle registrazioni
     risultati = []
     for i, registro in enumerate(bot_instance.noleggi):
-        # Ricerca base (nome, cognome, telefono)
-        trovato = (query in registro['nome'].lower() or 
-                  query in registro['cognome'].lower() or 
-                  query in registro['telefono'].lower())
+        # Ricerca base (cognome, nome, telefono, numero documento)
+        trovato = (query in registro.get('cognome', '').lower() or 
+                  query in registro.get('nome', '').lower() or 
+                  query in registro['telefono'].lower() or
+                  query in registro.get('numero_documento', '').lower())
         
         # Ricerca per tipo noleggio
         if not trovato:
@@ -620,8 +636,8 @@ async def cerca_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 🔍 **DETTAGLI CLIENTE TROVATO**
 
 📅 **Data:** {registro['data']}
-👤 **Nome:** {registro['nome']} {registro['cognome']}
-📄 **Documento:** {registro['documento']}
+👤 **Nome:** {registro.get('cognome', '')} {registro.get('nome', '')}
+📄 **Documento:** {registro['documento']} - {registro.get('numero_documento', 'N/A')}
 📞 **Telefono:** {registro['telefono']}
 🏅 **Associato:** {registro['associato']}
 
@@ -649,7 +665,7 @@ async def cerca_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             tempo = registro['tempo']
             numero = registro['numero']
             
-            messaggio += f"{i}. **{registro['nome']} {registro['cognome']}**\n"
+            messaggio += f"{i}. **{registro.get('cognome', '')} {registro.get('nome', '')}**\n"
             messaggio += f"   📅 {data_noleggio} | 🏄‍♂️ {tipo} {registro['dettagli']}\n"
             messaggio += f"   🔢 N. {numero} | ⏱️ {tempo} | 📞 {registro['telefono']}\n\n"
         
@@ -682,7 +698,7 @@ async def mostra_clienti(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         messaggio += f"📅 **{data}** ({len(registrazioni_giorno)} noleggi)\n"
         
         for registro in registrazioni_giorno:
-            nome_completo = f"{registro['nome']} {registro['cognome']}"
+            nome_completo = f"{registro.get('cognome', '')} {registro.get('nome', '')}"
             tipo_breve = registro['tipo_noleggio']
             numero = registro['numero']
             tempo = registro['tempo']
@@ -728,8 +744,8 @@ async def seleziona_cliente_modifica(update: Update, context: ContextTypes.DEFAU
     # Cerca il cliente
     risultati = []
     for i, registro in enumerate(bot_instance.noleggi):
-        if (query in registro['nome'].lower() or 
-            query in registro['cognome'].lower() or 
+        if (query in registro.get('cognome', '').lower() or 
+            query in registro.get('nome', '').lower() or 
             query in registro['telefono'].lower()):
             risultati.append((i, registro))
     
@@ -744,15 +760,16 @@ async def seleziona_cliente_modifica(update: Update, context: ContextTypes.DEFAU
         
         # Mostra i campi modificabili
         keyboard = [
-            ['Nome', 'Cognome', 'Telefono'],
-            ['Documento', 'Tipo Noleggio', 'Tempo'],
-            ['Pagamento', 'Annulla']
+            ['Cognome', 'Nome', 'Telefono'],
+            ['Documento', 'Numero Documento'],
+            ['Tipo Noleggio', 'Tempo', 'Pagamento'],
+            ['Annulla']
         ]
         reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
         
         messaggio = f"""
 ✏️ **CLIENTE SELEZIONATO:**
-{registro['nome']} {registro['cognome']} - {registro['telefono']}
+{registro.get('cognome', '')} {registro.get('nome', '')} - {registro['telefono']}
 📅 {registro['data']} | 🏄‍♂️ {registro['tipo_noleggio']}
 
 **Quale campo vuoi modificare?**
@@ -766,7 +783,7 @@ async def seleziona_cliente_modifica(update: Update, context: ContextTypes.DEFAU
         messaggio = f"🔍 **TROVATI {len(risultati)} CLIENTI:**\n\n"
         
         for i, (idx, registro) in enumerate(risultati[:5], 1):  # Max 5
-            messaggio += f"{i}. {registro['nome']} {registro['cognome']}\n"
+            messaggio += f"{i}. {registro.get('cognome', '')} {registro.get('nome', '')}\n"
             messaggio += f"   📅 {registro['data']} | 📞 {registro['telefono']}\n\n"
         
         messaggio += "Scrivi il nome completo del cliente che vuoi modificare:"
@@ -776,7 +793,7 @@ async def seleziona_cliente_modifica(update: Update, context: ContextTypes.DEFAU
 async def seleziona_campo_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Seleziona il campo da modificare"""
     campo = update.message.text
-    campi_validi = ['Nome', 'Cognome', 'Telefono', 'Documento', 'Tipo Noleggio', 'Tempo', 'Pagamento']
+    campi_validi = ['Cognome', 'Nome', 'Telefono', 'Documento', 'Numero Documento', 'Tipo Noleggio', 'Tempo', 'Pagamento']
     
     if campo == 'Annulla':
         await update.message.reply_text("❌ Modifica annullata.", reply_markup=ReplyKeyboardRemove())
@@ -785,9 +802,10 @@ async def seleziona_campo_modifica(update: Update, context: ContextTypes.DEFAULT
     
     if campo not in campi_validi:
         keyboard = [
-            ['Nome', 'Cognome', 'Telefono'],
-            ['Documento', 'Tipo Noleggio', 'Tempo'],
-            ['Pagamento', 'Annulla']
+            ['Cognome', 'Nome', 'Telefono'],
+            ['Documento', 'Numero Documento'],
+            ['Tipo Noleggio', 'Tempo', 'Pagamento'],
+            ['Annulla']
         ]
         await update.message.reply_text(
             "❌ Seleziona un campo valido:",
@@ -802,16 +820,17 @@ async def seleziona_campo_modifica(update: Update, context: ContextTypes.DEFAULT
     registro = bot_instance.noleggi[idx]
     
     campo_map = {
-        'Nome': 'nome',
-        'Cognome': 'cognome', 
+        'Cognome': 'cognome',
+        'Nome': 'nome', 
         'Telefono': 'telefono',
         'Documento': 'documento',
+        'Numero Documento': 'numero_documento',
         'Tipo Noleggio': 'tipo_noleggio',
         'Tempo': 'tempo',
         'Pagamento': 'pagamento'
     }
     
-    valore_attuale = registro[campo_map[campo]]
+    valore_attuale = registro.get(campo_map[campo], 'N/A')
     
     if campo == 'Documento':
         keyboard = [['C.I.', 'PAT'], ['PASS', 'ALTRO']]
@@ -839,10 +858,11 @@ async def salva_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     campo = context.user_data['campo_modifica']
     
     campo_map = {
-        'Nome': 'nome',
-        'Cognome': 'cognome', 
+        'Cognome': 'cognome',
+        'Nome': 'nome', 
         'Telefono': 'telefono',
         'Documento': 'documento',
+        'Numero Documento': 'numero_documento',
         'Tipo Noleggio': 'tipo_noleggio',
         'Tempo': 'tempo',
         'Pagamento': 'pagamento'
@@ -874,7 +894,12 @@ async def salva_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return NUOVO_VALORE
     
     # Salva la modifica
-    valore_precedente = bot_instance.noleggi[idx][campo_map[campo]]
+    valore_precedente = bot_instance.noleggi[idx].get(campo_map[campo], 'N/A')
+    
+    # Assicura che il campo esista nel record (retrocompatibilità)
+    if campo_map[campo] not in bot_instance.noleggi[idx]:
+        bot_instance.noleggi[idx][campo_map[campo]] = ''
+    
     bot_instance.noleggi[idx][campo_map[campo]] = nuovo_valore
     bot_instance.save_data()
     
@@ -883,7 +908,7 @@ async def salva_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     messaggio = f"""
 ✅ **MODIFICA COMPLETATA!**
 
-👤 **Cliente:** {registro['nome']} {registro['cognome']}
+👤 **Cliente:** {registro.get('cognome', '')} {registro.get('nome', '')}
 ✏️ **Campo modificato:** {campo}
 📝 **Da:** {valore_precedente}
 📝 **A:** {nuovo_valore}
@@ -906,7 +931,7 @@ async def vedi_ricevute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     clienti_senza_ricevute = {}
     
     for registro in bot_instance.noleggi:
-        nome_completo = f"{registro['nome']} {registro['cognome']}"
+        nome_completo = f"{registro.get('cognome', '')} {registro.get('nome', '')}"
         if registro['foto_ricevuta']:
             if nome_completo not in clienti_con_ricevute:
                 clienti_con_ricevute[nome_completo] = []
@@ -963,8 +988,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 7. Usa /export per scaricare tutti i dati in CSV
 
 **Ricerca avanzata con /cerca:**
-• Nome/cognome: `/cerca Mario Rossi`
+• Cognome/Nome: `/cerca Rossi`, `/cerca Mario`
 • Telefono: `/cerca 3331234567`
+• Numero documento: `/cerca AB123456`
 • Tipo noleggio: `/cerca SUP`, `/cerca KAYAK`
 • Numero specifico: `/cerca drybag 9`, `/cerca lettino A`
 • Dettagli: `/cerca sup yoga`, `/cerca lettino pineta`
@@ -986,8 +1012,13 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 def main():
     """Funzione principale per avviare il bot"""
     try:
-        # Token del bot
-        TOKEN = "7130353755:AAGo8SyTtmn48O-VynNAU0pbQBK_8Q2dVR4"
+        # Token del bot da variabile d'ambiente
+        TOKEN = os.getenv('BOT_TOKEN')
+        
+        if not TOKEN:
+            print("❌ ERRORE: Token non trovato!")
+            print("🔧 Imposta la variabile d'ambiente BOT_TOKEN")
+            return
         
         # Crea l'applicazione
         application = Application.builder().token(TOKEN).build()
@@ -997,9 +1028,10 @@ def main():
             entry_points=[CommandHandler("start", start)],
             states={
                 DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_data)],
-                NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_nome)],
                 COGNOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_cognome)],
+                NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_nome)],
                 DOCUMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_documento)],
+                NUMERO_DOCUMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numero_documento)],
                 TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_telefono)],
                 ASSOCIATO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_associato)],
                 TIPO_NOLEGGIO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_tipo_noleggio)],
