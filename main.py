@@ -1,26 +1,10 @@
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mostra la guida ai comandi"""
-    help_text = """
-🏄‍♂️ **BOT NOLEGGIO SUP - GUIDA COMANDI**
-
-/nuovo - Inizia una nuova registrazione noleggio
-/cerca - Cerca cliente (nome/tipo noleggio/numero)
-/mostra_clienti - Lista completa clienti con contatori
-/modifica - Modifica dati di un cliente esistente
-/export - Esporta tutti i dati in formato CSV
-/vedi_ricevute - Visualizza stato ricevute per cliente
-/help - Mostra questa guida
-/cancel - Annulla l'operazione in corso
-
-**Come funziona:**
-1. Usa /nuovo per registrare un noleggio
-2.#!/usr/bin/env python3
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Bot Telegram per Noleggio SUP
+Bot Telegram per Noleggio SUP - Versione Ottimizzata con Noleggi Giornalieri
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 2.2 - Date validation + Importo € + Note + Fix /start
+Versione: 2.4 - Noleggi giornalieri + Foto ricevute
 """
 
 import os
@@ -29,23 +13,20 @@ import json
 import logging
 from datetime import datetime
 from collections import defaultdict
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
-from typing import Dict, Any
 
-# Configura il logging
+# Configura logging
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Stati della conversazione
+# Stati conversazione
 (DATA, COGNOME, NOME, DOCUMENTO, NUMERO_DOCUMENTO, TELEFONO, ASSOCIATO, TIPO_NOLEGGIO, 
  DETTAGLI_SUP, DETTAGLI_LETTINO, LETTINO_NUMERO, TEMPO, PAGAMENTO, IMPORTO, FOTO_RICEVUTA, NOTE) = range(16)
 
-# File per salvare i dati e le foto
+# File e directory
 DATA_FILE = 'noleggi.json'
 PHOTOS_DIR = 'ricevute_photos'
-
-# Crea la directory per le foto se non esiste
 os.makedirs(PHOTOS_DIR, exist_ok=True)
 
 class SupRentalBot:
@@ -53,335 +34,139 @@ class SupRentalBot:
         self.noleggi = self.load_data()
     
     def load_data(self):
-        """Carica i dati esistenti dal file JSON"""
         try:
             with open(DATA_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except FileNotFoundError:
-            logger.info("File dati non trovato, creo nuovo database")
-            return []
-        except json.JSONDecodeError:
-            logger.error("Errore nel file JSON, creo nuovo database")
-            return []
-        except Exception as e:
-            logger.error(f"Errore caricamento dati: {e}")
+        except (FileNotFoundError, json.JSONDecodeError):
+            logger.info("Creo nuovo database")
             return []
     
     def save_data(self):
-        """Salva i dati nel file JSON"""
-        try:
-            with open(DATA_FILE, 'w', encoding='utf-8') as f:
-                json.dump(self.noleggi, f, ensure_ascii=False, indent=2)
-            logger.info("Dati salvati correttamente")
-        except Exception as e:
-            logger.error(f"Errore salvataggio dati: {e}")
-            raise
+        with open(DATA_FILE, 'w', encoding='utf-8') as f:
+            json.dump(self.noleggi, f, ensure_ascii=False, indent=2)
+    
+    def get_noleggi_oggi(self):
+        """Restituisce solo i noleggi di oggi"""
+        oggi = datetime.now().strftime('%d/%m/%Y')
+        return [n for n in self.noleggi if n['data'] == oggi]
 
-# Istanza globale del bot
 bot_instance = SupRentalBot()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Avvia la conversazione di registrazione"""
+    """Avvia registrazione"""
     await update.message.reply_text(
-        "🏄‍♂️ **Benvenuto nel sistema di noleggio SUP!**\n\n"
-        "Iniziamo la registrazione del noleggio.\n"
-        "Per prima cosa, inserisci la **data** (formato: DD/MM/YYYY):"
+        "🏄‍♂️ **Benvenuto nel sistema noleggio SUP!**\n\n"
+        "Inserisci la **data** (formato: DD/MM/YYYY):"
     )
     return DATA
 
 async def get_data(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve la data e chiede il cognome - CON VALIDAZIONE DATE"""
+    """Valida data e continua"""
     try:
         data_text = update.message.text
-        # Valida il formato della data
         data_obj = datetime.strptime(data_text, '%d/%m/%Y')
         
-        # Verifica che sia dal 2025 in poi e massimo 1 anno nel futuro
-        oggi = datetime.now()
-        data_minima = datetime(2025, 1, 1)
-        data_massima = datetime(oggi.year + 1, oggi.month, oggi.day)
-        
-        if data_obj < data_minima:
-            await update.message.reply_text(
-                "❌ La data deve essere dal 2025 in poi.\n"
-                "Inserisci una data valida (formato: DD/MM/YYYY):"
-            )
+        # Verifica range valido
+        if data_obj.year < 2025 or data_obj > datetime.now().replace(year=datetime.now().year + 1):
+            await update.message.reply_text("❌ Data non valida. Usa formato DD/MM/YYYY (dal 2025):")
             return DATA
             
-        if data_obj > data_massima:
-            await update.message.reply_text(
-                f"❌ La data non può essere oltre {data_massima.strftime('%d/%m/%Y')}.\n"
-                "Inserisci una data valida (formato: DD/MM/YYYY):"
-            )
-            return DATA
-        
         context.user_data['data'] = data_text
-        
-        await update.message.reply_text("Perfetto! Ora inserisci il COGNOME:")
+        await update.message.reply_text("Inserisci il COGNOME:")
         return COGNOME
         
     except ValueError:
-        await update.message.reply_text(
-            "❌ Formato data non valido. Usa il formato DD/MM/YYYY (es: 25/12/2025):"
-        )
+        await update.message.reply_text("❌ Formato errato. Usa DD/MM/YYYY:")
         return DATA
 
 async def get_cognome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il cognome e chiede il nome"""
     context.user_data['cognome'] = update.message.text
-    await update.message.reply_text("Ottimo! Ora inserisci il NOME:")
+    await update.message.reply_text("Inserisci il NOME:")
     return NOME
 
 async def get_nome(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il nome e chiede il tipo di documento"""
     context.user_data['nome'] = update.message.text
     
-    # Inline buttons per il documento
     keyboard = [
         [InlineKeyboardButton("C.I.", callback_data="doc_CI")],
         [InlineKeyboardButton("PAT", callback_data="doc_PAT")],
         [InlineKeyboardButton("PASS", callback_data="doc_PASS")],
         [InlineKeyboardButton("ALTRO", callback_data="doc_ALTRO")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
-        "Seleziona il tipo di DOCUMENTO:",
-        reply_markup=reply_markup
+        "Seleziona tipo DOCUMENTO:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return DOCUMENTO
 
+async def get_numero_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    numero_doc = update.message.text.strip()
+    if len(numero_doc) < 3:
+        await update.message.reply_text("❌ Numero documento troppo corto (min 3 caratteri):")
+        return NUMERO_DOCUMENTO
+    
+    context.user_data['numero_documento'] = numero_doc
+    await update.message.reply_text("Inserisci TELEFONO:")
+    return TELEFONO
+
+async def get_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    context.user_data['telefono'] = update.message.text
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ SÌ", callback_data="assoc_SI")],
+        [InlineKeyboardButton("❌ NO", callback_data="assoc_NO")]
+    ]
+    
+    await update.message.reply_text(
+        "È ASSOCIATO?",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return ASSOCIATO
+
 async def get_importo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve l'importo e chiede la foto ricevuta"""
+    """Riceve importo con icona EUR"""
     importo_text = update.message.text.replace(',', '.').strip()
     
     try:
-        # Verifica che sia un numero valido
         importo = float(importo_text)
         if importo <= 0:
             raise ValueError
         
-        # Formatta a 2 decimali
-        context.user_data['importo'] = f"{importo:.2f}€"
+        # Usa icona EUR invece del simbolo €
+        context.user_data['importo'] = f"{importo:.2f} EUR"
         
-        # Ora chiedi la foto ricevuta
         keyboard = [
             [InlineKeyboardButton("📸 SÌ - Allego foto", callback_data="foto_SI")],
             [InlineKeyboardButton("❌ NO - Nessuna foto", callback_data="foto_NO")]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         
         await update.message.reply_text(
-            f"✅ Importo: {context.user_data['importo']}\n\n"
-            "📷 Vuoi allegare la foto della ricevuta?",
-            reply_markup=reply_markup
+            f"✅ Importo: {context.user_data['importo']}\n\n📷 Allegare foto ricevuta?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return FOTO_RICEVUTA
         
     except ValueError:
-        await update.message.reply_text(
-            "❌ Inserisci un importo valido in Euro (es: 25, 30.50):"
-        )
+        await update.message.reply_text("❌ Importo non valido (es: 25, 30.50):")
         return IMPORTO
-    """Gestisce tutti i callback dei pulsanti inline"""
-    query = update.callback_query
-    await query.answer()  # Acknowledge the callback
-    
-    data = query.data
-    
-    # Documento
-    if data.startswith("doc_"):
-        documento = data.replace("doc_", "").replace("_", ".")
-        context.user_data['documento'] = documento
-        
-        await query.edit_message_text(
-            f"✅ Documento selezionato: {documento}\n\n"
-            f"Inserisci il NUMERO del documento {documento}:"
-        )
-        return NUMERO_DOCUMENTO
-    
-    # Associato
-    elif data.startswith("assoc_"):
-        associato = "SÌ" if data == "assoc_SI" else "NO"
-        context.user_data['associato'] = associato
-        
-        # Inline buttons per tipo noleggio
-        keyboard = [
-            [InlineKeyboardButton("🏄‍♂️ SUP", callback_data="tipo_SUP")],
-            [InlineKeyboardButton("🚣‍♂️ KAYAK", callback_data="tipo_KAYAK")],
-            [InlineKeyboardButton("🏖️ LETTINO", callback_data="tipo_LETTINO")],
-            [InlineKeyboardButton("📱 PHONEBAG", callback_data="tipo_PHONEBAG")],
-            [InlineKeyboardButton("🎒 DRYBAG", callback_data="tipo_DRYBAG")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            f"✅ Associato: {associato}\n\n"
-            "Cosa viene noleggiato?",
-            reply_markup=reply_markup
-        )
-        return TIPO_NOLEGGIO
-    
-    # Tipo noleggio
-    elif data.startswith("tipo_"):
-        tipo = data.replace("tipo_", "")
-        context.user_data['tipo_noleggio'] = tipo
-        
-        if tipo == 'SUP':
-            keyboard = [
-                [InlineKeyboardButton("All-around", callback_data="sup_All-around")],
-                [InlineKeyboardButton("Touring", callback_data="sup_Touring")],
-                [InlineKeyboardButton("Race", callback_data="sup_Race")],
-                [InlineKeyboardButton("Surf", callback_data="sup_Surf")],
-                [InlineKeyboardButton("Yoga", callback_data="sup_Yoga")],
-                [InlineKeyboardButton("Whitewater", callback_data="sup_Whitewater")],
-                [InlineKeyboardButton("Windsurf", callback_data="sup_Windsurf")],
-                [InlineKeyboardButton("Foil", callback_data="sup_Foil")],
-                [InlineKeyboardButton("Multi", callback_data="sup_Multi")],
-                [InlineKeyboardButton("Fishing", callback_data="sup_Fishing")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                f"✅ Tipo noleggio: {tipo}\n\n"
-                "Seleziona il tipo di SUP:",
-                reply_markup=reply_markup
-            )
-            return DETTAGLI_SUP
-            
-        elif tipo == 'LETTINO':
-            keyboard = [
-                [InlineKeyboardButton("🌲 Pineta", callback_data="lettino_Pineta")],
-                [InlineKeyboardButton("🚤 Squero", callback_data="lettino_Squero")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                f"✅ Tipo noleggio: {tipo}\n\n"
-                "Seleziona il tipo di LETTINO:",
-                reply_markup=reply_markup
-            )
-            return DETTAGLI_LETTINO
-            
-        elif tipo in ['PHONEBAG', 'DRYBAG']:
-            await query.edit_message_text(
-                f"✅ Tipo noleggio: {tipo}\n\n"
-                f"Inserisci il numero del {tipo} (0-99):"
-            )
-            return LETTINO_NUMERO
-            
-        else:  # KAYAK
-            context.user_data['dettagli'] = 'Standard'
-            # USA SEMPRE LA STESSA FUNZIONE TEMPO!
-            return await show_tempo_buttons(query, context)
-    
-    # SUP dettagli
-    elif data.startswith("sup_"):
-        dettagli = data.replace("sup_", "")
-        context.user_data['dettagli'] = dettagli
-        # USA SEMPRE LA STESSA FUNZIONE TEMPO!
-        return await show_tempo_buttons(query, context)
-    
-    # Lettino dettagli
-    elif data.startswith("lettino_"):
-        dettagli = data.replace("lettino_", "")
-        context.user_data['dettagli'] = dettagli
-        
-        associato = context.user_data['associato']
-        if associato == 'SÌ':
-            await query.edit_message_text(
-                f"✅ Lettino: {dettagli}\n\n"
-                "Inserisci la LETTERA del lettino (A-Z):"
-            )
-        else:
-            await query.edit_message_text(
-                f"✅ Lettino: {dettagli}\n\n"
-                "Inserisci il NUMERO del lettino (0-99):"
-            )
-        return LETTINO_NUMERO
-    
-    # Tempo
-    elif data.startswith("tempo_"):
-        tempo = data.replace("tempo_", "")
-        context.user_data['tempo'] = tempo
-        
-        keyboard = [
-            [InlineKeyboardButton("💳 CARTA", callback_data="pag_CARD")],
-            [InlineKeyboardButton("🏦 BONIFICO", callback_data="pag_BONIFICO")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        try:
-            await query.edit_message_text(
-                f"✅ Tempo: {tempo}\n\n"
-                "💰 Seleziona il tipo di PAGAMENTO:",
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"Errore pagamento buttons: {e}")
-            await query.message.reply_text(
-                f"✅ Tempo: {tempo}\n\n"
-                "💰 Seleziona il tipo di PAGAMENTO:",
-                reply_markup=reply_markup
-            )
-        return PAGAMENTO
-    
-    # Pagamento
-    elif data.startswith("pag_"):
-        pagamento = data.replace("pag_", "")
-        context.user_data['pagamento'] = pagamento
-        
-        # Invece di andare direttamente alla foto, chiedi l'importo
-        try:
-            await query.edit_message_text(
-                f"✅ Pagamento: {pagamento}\n\n"
-                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
-            )
-        except Exception as e:
-            logger.error(f"Errore importo: {e}")
-            await query.message.reply_text(
-                f"✅ Pagamento: {pagamento}\n\n"
-                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
-            )
-        return IMPORTO
-    
-    # Foto ricevuta
-    elif data.startswith("foto_"):
-        if data == "foto_SI":
-            await query.edit_message_text(
-                "📸 Invia la foto della ricevuta:"
-            )
-            context.user_data['attende_foto'] = True
-            return FOTO_RICEVUTA
-        else:
-            context.user_data['foto_ricevuta'] = None
-            await query.edit_message_text("✅ Nessuna foto allegata.")
-            return await salva_registrazione_callback(query, context)
-    
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Gestisce tutti i callback dei pulsanti inline"""
+    """Handler unificato per tutti i callback"""
     query = update.callback_query
-    await query.answer()  # Acknowledge the callback
-    
+    await query.answer()
     data = query.data
     
-    # Documento
-    if data.startswith("doc_"):
-        documento = data.replace("doc_", "").replace("_", ".")
-        context.user_data['documento'] = documento
+    # Gestione noleggi multipli
+    elif data == "altro_noleggio":
+        # Ripristina i dati base del cliente
+        if 'cliente_base' in context.user_data:
+            context.user_data.update(context.user_data['cliente_base'])
         
-        await query.edit_message_text(
-            f"✅ Documento selezionato: {documento}\n\n"
-            f"Inserisci il NUMERO del documento {documento}:"
-        )
-        return NUMERO_DOCUMENTO
-    
-    # Associato
-    elif data.startswith("assoc_"):
-        associato = "SÌ" if data == "assoc_SI" else "NO"
-        context.user_data['associato'] = associato
+        # Pulisce i dati del noleggio precedente
+        for key in ['tipo_noleggio', 'dettagli', 'numero', 'tempo', 'pagamento', 'importo', 'foto_ricevuta', 'note']:
+            context.user_data.pop(key, None)
         
-        # Inline buttons per tipo noleggio
         keyboard = [
             [InlineKeyboardButton("🏄‍♂️ SUP", callback_data="tipo_SUP")],
             [InlineKeyboardButton("🚣‍♂️ KAYAK", callback_data="tipo_KAYAK")],
@@ -389,12 +174,130 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             [InlineKeyboardButton("📱 PHONEBAG", callback_data="tipo_PHONEBAG")],
             [InlineKeyboardButton("🎒 DRYBAG", callback_data="tipo_DRYBAG")]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         
         await query.edit_message_text(
-            f"✅ Associato: {associato}\n\n"
-            "Cosa viene noleggiato?",
-            reply_markup=reply_markup
+            f"➕ **ALTRO NOLEGGIO PER:**\n"
+            f"👤 {context.user_data.get('cognome', '')} {context.user_data.get('nome', '')}\n\n"
+            f"Cosa noleggia ancora?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        return TIPO_NOLEGGIO
+    
+    elif data == "finito":
+        # Calcola totale noleggi per questo cliente
+        nome_completo = f"{context.user_data.get('cognome', '')} {context.user_data.get('nome', '')}"
+        oggi = datetime.now().strftime('%d/%m/%Y')
+        
+        noleggi_cliente_oggi = [n for n in bot_instance.noleggi 
+                               if n['data'] == oggi and 
+                               f"{n.get('cognome', '')} {n.get('nome', '')}" == nome_completo]
+        
+        # Riassunto finale
+        messaggio_finale = f"""
+🎉 **REGISTRAZIONE COMPLETA!**
+
+👤 **Cliente:** {nome_completo}
+📅 **Data:** {oggi}
+📱 **Telefono:** {context.user_data.get('telefono', '')}
+
+🏄‍♂️ **NOLEGGI TOTALI:** {len(noleggi_cliente_oggi)}
+        """
+        
+        # Lista tutti i noleggi
+        for i, noleggio in enumerate(noleggi_cliente_oggi, 1):
+            tipo_icon = {"SUP": "🏄‍♂️", "KAYAK": "🚣‍♂️", "LETTINO": "🏖️", "PHONEBAG": "📱", "DRYBAG": "🎒"}.get(noleggio['tipo_noleggio'], "📦")
+            messaggio_finale += f"\n{i}. {tipo_icon} {noleggio['tipo_noleggio']} {noleggio['dettagli']} N.{noleggio['numero']} ({noleggio['tempo']}) - {noleggio.get('importo', 'N/A')}"
+        
+        messaggio_finale += f"\n\n💡 Usa `/mostra_noleggi` per vedere tutti i clienti di oggi"
+        
+        await query.edit_message_text(messaggio_finale)
+        context.user_data.clear()
+        return ConversationHandler.END
+    if data.startswith("cliente_"):
+        cliente_idx = int(data.replace("cliente_", ""))
+        noleggi_oggi = bot_instance.get_noleggi_oggi()
+        
+        if cliente_idx < len(noleggi_oggi):
+            registro = noleggi_oggi[cliente_idx]
+            
+            # Pulsante per vedere foto se presente
+            keyboard = []
+            if registro.get('foto_ricevuta'):
+                keyboard.append([InlineKeyboardButton("📸 Vedi Foto Ricevuta", callback_data=f"foto_{cliente_idx}")])
+            
+            reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
+            
+            messaggio = f"""
+👤 **{registro.get('cognome', '')} {registro.get('nome', '')}**
+
+📞 {registro['telefono']}
+📄 {registro['documento']} - {registro.get('numero_documento', '')}
+🏅 Associato: {registro['associato']}
+
+🏄‍♂️ **NOLEGGIO:**
+• Tipo: {registro['tipo_noleggio']} {registro['dettagli']}
+• Numero: {registro['numero']}
+• Tempo: {registro['tempo']}
+
+💰 **PAGAMENTO:**
+• Tipo: {registro['pagamento']}
+• Importo: {registro.get('importo', 'N/A')}
+
+📝 Note: {registro.get('note', 'Nessuna nota')}
+            """
+            
+            await query.edit_message_text(messaggio, reply_markup=reply_markup)
+        
+        return ConversationHandler.END
+    
+    # Gestione visualizzazione foto
+    elif data.startswith("foto_"):
+        cliente_idx = int(data.replace("foto_", ""))
+        noleggi_oggi = bot_instance.get_noleggi_oggi()
+        
+        if cliente_idx < len(noleggi_oggi):
+            registro = noleggi_oggi[cliente_idx]
+            foto_filename = registro.get('foto_ricevuta')
+            
+            if foto_filename:
+                foto_path = os.path.join(PHOTOS_DIR, foto_filename)
+                if os.path.exists(foto_path):
+                    with open(foto_path, 'rb') as foto:
+                        await query.message.reply_photo(
+                            photo=foto,
+                            caption=f"📸 Ricevuta di {registro.get('cognome', '')} {registro.get('nome', '')}\n"
+                                   f"💰 {registro.get('importo', 'N/A')} - {registro['pagamento']}"
+                        )
+                else:
+                    await query.message.reply_text("❌ File foto non trovato")
+            else:
+                await query.message.reply_text("❌ Nessuna foto disponibile")
+        
+        return ConversationHandler.END
+    
+    # Documento
+    if data.startswith("doc_"):
+        documento = data.replace("doc_", "").replace("_", ".")
+        context.user_data['documento'] = documento
+        await query.edit_message_text(f"✅ Documento: {documento}\n\nInserisci NUMERO documento:")
+        return NUMERO_DOCUMENTO
+    
+    # Associato
+    elif data.startswith("assoc_"):
+        associato = "SÌ" if data == "assoc_SI" else "NO"
+        context.user_data['associato'] = associato
+        
+        keyboard = [
+            [InlineKeyboardButton("🏄‍♂️ SUP", callback_data="tipo_SUP")],
+            [InlineKeyboardButton("🚣‍♂️ KAYAK", callback_data="tipo_KAYAK")],
+            [InlineKeyboardButton("🏖️ LETTINO", callback_data="tipo_LETTINO")],
+            [InlineKeyboardButton("📱 PHONEBAG", callback_data="tipo_PHONEBAG")],
+            [InlineKeyboardButton("🎒 DRYBAG", callback_data="tipo_DRYBAG")]
+        ]
+        
+        await query.edit_message_text(
+            f"✅ Associato: {associato}\n\nTipo noleggio?",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return TIPO_NOLEGGIO
     
@@ -409,19 +312,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 [InlineKeyboardButton("Touring", callback_data="sup_Touring")],
                 [InlineKeyboardButton("Race", callback_data="sup_Race")],
                 [InlineKeyboardButton("Surf", callback_data="sup_Surf")],
-                [InlineKeyboardButton("Yoga", callback_data="sup_Yoga")],
-                [InlineKeyboardButton("Whitewater", callback_data="sup_Whitewater")],
-                [InlineKeyboardButton("Windsurf", callback_data="sup_Windsurf")],
-                [InlineKeyboardButton("Foil", callback_data="sup_Foil")],
-                [InlineKeyboardButton("Multi", callback_data="sup_Multi")],
-                [InlineKeyboardButton("Fishing", callback_data="sup_Fishing")]
+                [InlineKeyboardButton("Yoga", callback_data="sup_Yoga")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await query.edit_message_text(
-                f"✅ Tipo noleggio: {tipo}\n\n"
-                "Seleziona il tipo di SUP:",
-                reply_markup=reply_markup
+                f"✅ {tipo}\n\nTipo SUP:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return DETTAGLI_SUP
             
@@ -430,50 +325,34 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 [InlineKeyboardButton("🌲 Pineta", callback_data="lettino_Pineta")],
                 [InlineKeyboardButton("🚤 Squero", callback_data="lettino_Squero")]
             ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await query.edit_message_text(
-                f"✅ Tipo noleggio: {tipo}\n\n"
-                "Seleziona il tipo di LETTINO:",
-                reply_markup=reply_markup
+                f"✅ {tipo}\n\nTipo lettino:",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
             return DETTAGLI_LETTINO
             
         elif tipo in ['PHONEBAG', 'DRYBAG']:
-            await query.edit_message_text(
-                f"✅ Tipo noleggio: {tipo}\n\n"
-                f"Inserisci il numero del {tipo} (0-99):"
-            )
+            await query.edit_message_text(f"✅ {tipo}\n\nInserisci numero (0-99):")
             return LETTINO_NUMERO
             
         else:  # KAYAK
             context.user_data['dettagli'] = 'Standard'
-            # USA SEMPRE LA STESSA FUNZIONE TEMPO!
             return await show_tempo_buttons(query, context)
     
-    # SUP dettagli
+    # Dettagli SUP
     elif data.startswith("sup_"):
         dettagli = data.replace("sup_", "")
         context.user_data['dettagli'] = dettagli
-        # USA SEMPRE LA STESSA FUNZIONE TEMPO!
         return await show_tempo_buttons(query, context)
     
-    # Lettino dettagli
+    # Dettagli lettino
     elif data.startswith("lettino_"):
         dettagli = data.replace("lettino_", "")
         context.user_data['dettagli'] = dettagli
         
         associato = context.user_data['associato']
-        if associato == 'SÌ':
-            await query.edit_message_text(
-                f"✅ Lettino: {dettagli}\n\n"
-                "Inserisci la LETTERA del lettino (A-Z):"
-            )
-        else:
-            await query.edit_message_text(
-                f"✅ Lettino: {dettagli}\n\n"
-                "Inserisci il NUMERO del lettino (0-99):"
-            )
+        testo = "Inserisci LETTERA (A-Z):" if associato == 'SÌ' else "Inserisci NUMERO (0-99):"
+        await query.edit_message_text(f"✅ {dettagli}\n\n{testo}")
         return LETTINO_NUMERO
     
     # Tempo
@@ -485,21 +364,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             [InlineKeyboardButton("💳 CARTA", callback_data="pag_CARD")],
             [InlineKeyboardButton("🏦 BONIFICO", callback_data="pag_BONIFICO")]
         ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        try:
-            await query.edit_message_text(
-                f"✅ Tempo: {tempo}\n\n"
-                "💰 Seleziona il tipo di PAGAMENTO:",
-                reply_markup=reply_markup
-            )
-        except Exception as e:
-            logger.error(f"Errore pagamento buttons: {e}")
-            await query.message.reply_text(
-                f"✅ Tempo: {tempo}\n\n"
-                "💰 Seleziona il tipo di PAGAMENTO:",
-                reply_markup=reply_markup
-            )
+        await query.edit_message_text(
+            f"✅ Tempo: {tempo}\n\nTipo PAGAMENTO:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return PAGAMENTO
     
     # Pagamento
@@ -507,130 +376,127 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         pagamento = data.replace("pag_", "")
         context.user_data['pagamento'] = pagamento
         
-        # Invece di andare direttamente alla foto, chiedi l'importo
-        try:
-            await query.edit_message_text(
-                f"✅ Pagamento: {pagamento}\n\n"
-                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
-            )
-        except Exception as e:
-            logger.error(f"Errore importo: {e}")
-            await query.message.reply_text(
-                f"✅ Pagamento: {pagamento}\n\n"
-                "💰 Inserisci l'IMPORTO pagato in Euro (es: 25, 30.50):"
-            )
+        await query.edit_message_text(
+            f"✅ Pagamento: {pagamento}\n\nInserisci IMPORTO (es: 25, 30.50):"
+        )
         return IMPORTO
     
     # Foto ricevuta
     elif data.startswith("foto_"):
         if data == "foto_SI":
-            await query.edit_message_text(
-                "📸 Invia la foto della ricevuta:"
-            )
+            await query.edit_message_text("📸 Invia foto ricevuta:")
             context.user_data['attende_foto'] = True
             return FOTO_RICEVUTA
         else:
             context.user_data['foto_ricevuta'] = None
-            # Invece di finire, chiedi le note
-            await query.edit_message_text(
-                "✅ Nessuna foto allegata.\n\n"
-                "📝 Vuoi aggiungere delle NOTE? (Scrivi le note o 'skip' per saltare):"
-            )
+            await query.edit_message_text("✅ Nessuna foto\n\nAggiungi NOTE? (o 'skip'):")
             return NOTE
     
     return ConversationHandler.END
 
 async def show_tempo_buttons(query, context):
-    """Mostra i pulsanti tempo - LAYOUT SEMPLICE CHE FUNZIONA (1-8h + mezz'ore)"""
-    # Layout UNA COLONNA - funziona sempre su mobile e web
+    """Mostra opzioni tempo - CON MEZZ'ORE"""
     keyboard = [
-        [InlineKeyboardButton("⏱️ 1 ora", callback_data="tempo_1h")],
-        [InlineKeyboardButton("⏱️ 1,5 ore", callback_data="tempo_1,5h")],
-        [InlineKeyboardButton("⏱️ 2 ore", callback_data="tempo_2h")],
-        [InlineKeyboardButton("⏱️ 2,5 ore", callback_data="tempo_2,5h")],
-        [InlineKeyboardButton("⏱️ 3 ore", callback_data="tempo_3h")],
-        [InlineKeyboardButton("⏱️ 3,5 ore", callback_data="tempo_3,5h")],
-        [InlineKeyboardButton("⏱️ 4 ore", callback_data="tempo_4h")],
-        [InlineKeyboardButton("⏱️ 4,5 ore", callback_data="tempo_4,5h")],
-        [InlineKeyboardButton("⏱️ 5 ore", callback_data="tempo_5h")],
-        [InlineKeyboardButton("⏱️ 5,5 ore", callback_data="tempo_5,5h")],
-        [InlineKeyboardButton("⏱️ 6 ore", callback_data="tempo_6h")],
-        [InlineKeyboardButton("⏱️ 6,5 ore", callback_data="tempo_6,5h")],
-        [InlineKeyboardButton("⏱️ 7 ore", callback_data="tempo_7h")],
-        [InlineKeyboardButton("⏱️ 7,5 ore", callback_data="tempo_7,5h")],
-        [InlineKeyboardButton("⏱️ 8 ore", callback_data="tempo_8h")]
+        [InlineKeyboardButton("⏱️ 1h", callback_data="tempo_1h")],
+        [InlineKeyboardButton("⏱️ 1,5h", callback_data="tempo_1,5h")],
+        [InlineKeyboardButton("⏱️ 2h", callback_data="tempo_2h")],
+        [InlineKeyboardButton("⏱️ 2,5h", callback_data="tempo_2,5h")],
+        [InlineKeyboardButton("⏱️ 3h", callback_data="tempo_3h")],
+        [InlineKeyboardButton("⏱️ 3,5h", callback_data="tempo_3,5h")],
+        [InlineKeyboardButton("⏱️ 4h", callback_data="tempo_4h")],
+        [InlineKeyboardButton("⏱️ 4,5h", callback_data="tempo_4,5h")],
+        [InlineKeyboardButton("⏱️ 5h", callback_data="tempo_5h")],
+        [InlineKeyboardButton("⏱️ 6h", callback_data="tempo_6h")],
+        [InlineKeyboardButton("⏱️ 8h", callback_data="tempo_8h")]
     ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
     
     dettagli = context.user_data.get('dettagli', 'Standard')
     
     try:
         await query.edit_message_text(
-            f"✅ {dettagli}\n\n"
-            "🕐 Seleziona il tempo di noleggio:",
-            reply_markup=reply_markup
+            f"✅ {dettagli}\n\nTempo noleggio:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
-    except Exception as e:
-        logger.error(f"Errore tempo buttons: {e}")
-        # Se edit fallisce, manda nuovo messaggio
+    except Exception:
         await query.message.reply_text(
-            f"✅ {dettagli}\n\n"
-            "🕐 Seleziona il tempo di noleggio:",
-            reply_markup=reply_markup
+            f"✅ {dettagli}\n\nTempo noleggio:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
     
     return TEMPO
-    """Riceve il tipo di documento e chiede il numero"""
-    documento = update.message.text
-    if documento not in ['C.I.', 'PAT', 'PASS', 'ALTRO']:
-        await update.message.reply_text(
-            "❌ Seleziona un'opzione valida:",
-            reply_markup=ReplyKeyboardMarkup([['C.I.', 'PAT'], ['PASS', 'ALTRO']], 
-                                           one_time_keyboard=True, resize_keyboard=True)
-        )
-        return DOCUMENTO
-    
-    context.user_data['documento'] = documento
-    await update.message.reply_text(
-        f"Inserisci il NUMERO del documento {documento}:",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return NUMERO_DOCUMENTO
 
-async def get_numero_documento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il numero di documento e chiede il telefono"""
-    numero_doc = update.message.text.strip()
-    if len(numero_doc) < 3:
-        await update.message.reply_text(
-            "❌ Il numero del documento deve essere di almeno 3 caratteri:"
-        )
-        return NUMERO_DOCUMENTO
+async def get_lettino_numero(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Riceve numero/lettera per lettini e numeri per phonebag/drybag"""
+    numero_text = update.message.text.upper()
+    tipo = context.user_data['tipo_noleggio']
     
-    context.user_data['numero_documento'] = numero_doc
-    await update.message.reply_text("Inserisci il numero di TELEFONO:")
-    return TELEFONO
+    # Validazione semplificata
+    if tipo == 'LETTINO':
+        associato = context.user_data['associato']
+        if associato == 'SÌ':
+            if not (len(numero_text) == 1 and 'A' <= numero_text <= 'Z'):
+                await update.message.reply_text("❌ Inserisci lettera A-Z:")
+                return LETTINO_NUMERO
+        else:
+            try:
+                num = int(numero_text)
+                if not (0 <= num <= 99):
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("❌ Inserisci numero 0-99:")
+                return LETTINO_NUMERO
+    
+    context.user_data['numero'] = numero_text
+    
+    # Simula callback per tempo
+    from types import SimpleNamespace
+    fake_query = SimpleNamespace()
+    fake_query.edit_message_text = lambda text, reply_markup=None: update.message.reply_text(text, reply_markup=reply_markup)
+    fake_query.message = update.message
+    
+    return await show_tempo_buttons(fake_query, context)
 
-async def get_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il telefono e chiede se è associato"""
-    context.user_data['telefono'] = update.message.text
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gestisce foto ricevuta"""
+    if not context.user_data.get('attende_foto', False):
+        return FOTO_RICEVUTA
     
-    # Inline buttons per associato
-    keyboard = [
-        [InlineKeyboardButton("✅ SÌ", callback_data="assoc_SI")],
-        [InlineKeyboardButton("❌ NO", callback_data="assoc_NO")]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await update.message.reply_text(
-        "La persona è un ASSOCIATO?",
-        reply_markup=reply_markup
-    )
-    return ASSOCIATO
-
-async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Salva la registrazione quando viene da callback"""
     try:
-        # Prepara i dati per il salvataggio
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        nome = context.user_data.get('nome', 'unknown')
+        cognome = context.user_data.get('cognome', 'unknown')
+        filename = f"{timestamp}_{cognome}_{nome}_ricevuta.jpg"
+        filepath = os.path.join(PHOTOS_DIR, filename)
+        
+        await file.download_to_drive(filepath)
+        context.user_data['foto_ricevuta'] = filename
+        
+        await update.message.reply_text("✅ Foto salvata!\n\nAggiungi NOTE? (o 'skip'):")
+        return NOTE
+        
+    except Exception as e:
+        logger.error(f"Errore foto: {e}")
+        await update.message.reply_text("⚠️ Errore foto\n\nAggiungi NOTE? (o 'skip'):")
+        context.user_data['foto_ricevuta'] = None
+        return NOTE
+
+async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Riceve note e salva"""
+    note_text = update.message.text.strip()
+    
+    if note_text.lower() == 'skip':
+        context.user_data['note'] = None
+    else:
+        context.user_data['note'] = note_text
+    
+    return await salva_registrazione(update, context)
+
+async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Salva registrazione e chiede se aggiungere altro noleggio"""
+    try:
         registrazione = {
             'data': context.user_data['data'],
             'cognome': context.user_data['cognome'],
@@ -650,1037 +516,223 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
             'timestamp': datetime.now().isoformat()
         }
         
-        # Salva nel database
         bot_instance.noleggi.append(registrazione)
         bot_instance.save_data()
         
-        # Messaggio di conferma
+        # Salva i dati cliente per eventuali noleggi aggiuntivi
+        if 'cliente_base' not in context.user_data:
+            context.user_data['cliente_base'] = {
+                'data': context.user_data['data'],
+                'cognome': context.user_data['cognome'],
+                'nome': context.user_data['nome'],
+                'documento': context.user_data['documento'],
+                'numero_documento': context.user_data['numero_documento'],
+                'telefono': context.user_data['telefono'],
+                'associato': context.user_data['associato']
+            }
+        
         messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA! (v.2.2)**
+✅ **NOLEGGIO REGISTRATO!**
 
-📅 Data: {registrazione['data']}
-👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
-📄 Documento: {registrazione['documento']} - {registrazione['numero_documento']}
-📞 Telefono: {registrazione['telefono']}
-🏅 Associato: {registrazione['associato']}
-🏄‍♂️ Noleggio: {registrazione['tipo_noleggio']}
-📝 Dettagli: {registrazione['dettagli']}
-🔢 Numero: {registrazione['numero']}
-⏱️ Tempo: {registrazione['tempo']}
-💳 Pagamento: {registrazione['pagamento']}
-💰 Importo: {registrazione['importo']}
-📸 Foto ricevuta: {'✅ Presente' if registrazione['foto_ricevuta'] else '❌ Non allegata'}
-📝 Note: {registrazione['note'] if registrazione['note'] else '❌ Nessuna nota'}
-
-💡 **Comandi utili:**
-• /nuovo - Nuova registrazione
-• /cerca {registrazione['cognome']} - Trova questo cliente
-• /mostra_clienti - Vedi tutti i clienti
-• /export - Esporta dati CSV
+👤 {registrazione['cognome']} {registrazione['nome']}
+🏄‍♂️ {registrazione['tipo_noleggio']} {registrazione['dettagli']}
+🔢 N. {registrazione['numero']}
+⏱️ {registrazione['tempo']}
+💰 {registrazione['importo']}
         """
         
-        await query.message.reply_text(messaggio)
+        # Pulsanti per aggiungere altro o finire
+        keyboard = [
+            [InlineKeyboardButton("➕ Aggiungi altro noleggio", callback_data="altro_noleggio")],
+            [InlineKeyboardButton("✅ Finito", callback_data="finito")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
         
-        # Pulisce i dati utente
-        context.user_data.clear()
-        return ConversationHandler.END
+        await update.message.reply_text(messaggio + "\n\n🤔 Vuole noleggiare altro?", reply_markup=reply_markup)
+        
+        return TIPO_NOLEGGIO  # Resta nello stato per gestire altri noleggi
         
     except Exception as e:
-        logger.error(f"Errore nel salvataggio: {e}")
-        await query.message.reply_text(
-            "❌ Errore nel salvataggio dei dati. Riprova più tardi."
-        )
+        logger.error(f"Errore salvataggio: {e}")
+        await update.message.reply_text("❌ Errore salvataggio")
         context.user_data.clear()
         return ConversationHandler.END
-    """Riceve lo status associato e chiede il tipo di noleggio"""
-    associato = update.message.text
-    if associato not in ['SÌ', 'NO']:
-        keyboard = [['SÌ', 'NO']]
-        await update.message.reply_text(
-            "❌ Seleziona SÌ o NO con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return ASSOCIATO
+
+async def mostra_noleggi(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Mostra SOLO i noleggi di oggi raggruppati per cliente"""
+    noleggi_oggi = bot_instance.get_noleggi_oggi()
     
-    context.user_data['associato'] = associato
+    if not noleggi_oggi:
+        oggi = datetime.now().strftime('%d/%m/%Y')
+        await update.message.reply_text(f"📅 **Nessun noleggio per oggi ({oggi})**")
+        return
     
-    keyboard = [['SUP', 'KAYAK'], ['LETTINO'], ['PHONEBAG', 'DRYBAG']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
+    # Raggruppa per cliente
+    clienti_noleggi = defaultdict(list)
+    for noleggio in noleggi_oggi:
+        nome_completo = f"{noleggio.get('cognome', '')} {noleggio.get('nome', '')}"
+        clienti_noleggi[nome_completo].append(noleggio)
+    
+    # Crea pulsanti inline per ogni cliente
+    keyboard = []
+    cliente_index = 0
+    
+    for nome_cliente, noleggi_cliente in clienti_noleggi.items():
+        # Crea stringa con tutti i noleggi del cliente
+        noleggi_str = ""
+        ha_foto = False
+        
+        for noleggio in noleggi_cliente:
+            tipo_icon = {"SUP": "🏄‍♂️", "KAYAK": "🚣‍♂️", "LETTINO": "🏖️", "PHONEBAG": "📱", "DRYBAG": "🎒"}.get(noleggio['tipo_noleggio'], "📦")
+            noleggi_str += f"{tipo_icon}"
+            if noleggio.get('foto_ricevuta'):
+                ha_foto = True
+        
+        # Aggiungi icona foto se almeno un noleggio ha foto
+        foto_icon = " 📸" if ha_foto else ""
+        
+        button_text = f"{noleggi_str} {nome_cliente} ({len(noleggi_cliente)}){foto_icon}"
+        keyboard.append([InlineKeyboardButton(button_text, callback_data=f"cliente_{cliente_index}")])
+        cliente_index += 1
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    oggi = datetime.now().strftime('%d/%m/%Y')
+    totale_clienti = len(clienti_noleggi)
+    totale_noleggi = len(noleggi_oggi)
     
     await update.message.reply_text(
-        "Cosa viene noleggiato?",
+        f"📅 **NOLEGGI DI OGGI ({oggi})**\n"
+        f"👥 Clienti: {totale_clienti} | 🏄‍♂️ Noleggi: {totale_noleggi}\n\n"
+        f"📸 = con foto ricevuta\n"
+        f"(n) = numero noleggi\n"
+        f"Clicca su un cliente per i dettagli:",
         reply_markup=reply_markup
     )
-    return TIPO_NOLEGGIO
-
-async def get_tipo_noleggio(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Gestisce il tipo di noleggio"""
-    tipo = update.message.text
-    if tipo not in ['SUP', 'KAYAK', 'LETTINO', 'PHONEBAG', 'DRYBAG']:
-        keyboard = [['SUP', 'KAYAK'], ['LETTINO'], ['PHONEBAG', 'DRYBAG']]
-        await update.message.reply_text(
-            "❌ Seleziona un'opzione valida con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return TIPO_NOLEGGIO
-    
-    context.user_data['tipo_noleggio'] = tipo
-    
-    if tipo == 'SUP':
-        keyboard = [
-            ['All-around', 'Touring'],
-            ['Race', 'Surf'],
-            ['Yoga', 'Whitewater'],
-            ['Windsurf', 'Foil'],
-            ['Multi', 'Fishing']
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        await update.message.reply_text(
-            "Seleziona il tipo di SUP:",
-            reply_markup=reply_markup
-        )
-        return DETTAGLI_SUP
-    
-    elif tipo == 'LETTINO':
-        keyboard = [['Pineta', 'Squero']]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        await update.message.reply_text(
-            "Seleziona il tipo di LETTINO:",
-            reply_markup=reply_markup
-        )
-        return DETTAGLI_LETTINO
-    
-    elif tipo in ['PHONEBAG', 'DRYBAG']:
-        await update.message.reply_text(
-            f"Inserisci il numero del {tipo} (0-99):",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        return LETTINO_NUMERO
-    
-    else:  # KAYAK
-        context.user_data['dettagli'] = 'Standard'
-        return await get_tempo(update, context)
-
-async def get_dettagli_sup(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve i dettagli del SUP"""
-    dettagli = update.message.text
-    opzioni_sup = ['All-around', 'Touring', 'Race', 'Surf', 'Yoga', 'Whitewater', 
-                   'Windsurf', 'Foil', 'Multi', 'Fishing']
-    
-    if dettagli not in opzioni_sup:
-        keyboard = [
-            ['All-around', 'Touring'],
-            ['Race', 'Surf'],
-            ['Yoga', 'Whitewater'],
-            ['Windsurf', 'Foil'],
-            ['Multi', 'Fishing']
-        ]
-        await update.message.reply_text(
-            "❌ Seleziona un'opzione valida con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return DETTAGLI_SUP
-    
-    context.user_data['dettagli'] = dettagli
-    return await get_tempo(update, context)
-
-async def get_dettagli_lettino(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve i dettagli del lettino"""
-    dettagli = update.message.text
-    if dettagli not in ['Pineta', 'Squero']:
-        keyboard = [['Pineta', 'Squero']]
-        await update.message.reply_text(
-            "❌ Seleziona Pineta o Squero con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return DETTAGLI_LETTINO
-    
-    context.user_data['dettagli'] = dettagli
-    
-    # Chiede il numero/lettera del lettino
-    associato = context.user_data['associato']
-    if associato == 'SÌ':
-        await update.message.reply_text(
-            "Inserisci la LETTERA del lettino (A-Z):",
-            reply_markup=ReplyKeyboardRemove()
-        )
-    else:
-        await update.message.reply_text(
-            "Inserisci il NUMERO del lettino (0-99):",
-            reply_markup=ReplyKeyboardRemove()
-        )
-    
-    return LETTINO_NUMERO
-
-async def get_lettino_numero(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il numero/lettera del lettino o numero di phonebag/drybag"""
-    numero_text = update.message.text.upper()
-    tipo = context.user_data['tipo_noleggio']
-    
-    if tipo == 'LETTINO':
-        associato = context.user_data['associato']
-        if associato == 'SÌ':
-            # Verifica che sia una lettera A-Z
-            if len(numero_text) != 1 or not numero_text.isalpha() or numero_text < 'A' or numero_text > 'Z':
-                await update.message.reply_text(
-                    "❌ Inserisci una lettera valida (A-Z):"
-                )
-                return LETTINO_NUMERO
-        else:
-            # Verifica che sia un numero 0-99
-            try:
-                numero = int(numero_text)
-                if numero < 0 or numero > 99:
-                    raise ValueError
-            except ValueError:
-                await update.message.reply_text(
-                    "❌ Inserisci un numero valido (0-99):"
-                )
-                return LETTINO_NUMERO
-    
-    elif tipo in ['PHONEBAG', 'DRYBAG']:
-        # Verifica che sia un numero 0-99
-        try:
-            numero = int(numero_text)
-            if numero < 0 or numero > 99:
-                raise ValueError
-        except ValueError:
-            await update.message.reply_text(
-                f"❌ Inserisci un numero valido per {tipo} (0-99):"
-            )
-            return LETTINO_NUMERO
-    
-    context.user_data['numero'] = numero_text
-    
-    # TUTTI VANNO ALLA STESSA FUNZIONE TEMPO!
-    await update.message.reply_text("⏳ Caricamento opzioni tempo...")
-    
-    # Simula query per chiamare show_tempo_buttons
-    from types import SimpleNamespace
-    fake_query = SimpleNamespace()
-    fake_query.edit_message_text = lambda text, reply_markup=None: update.message.reply_text(text, reply_markup=reply_markup)
-    fake_query.message = update.message
-    
-    return await show_tempo_buttons(fake_query, context)
-
-async def get_tempo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Chiede il tempo di noleggio"""
-    # Crea tastiera con opzioni di tempo (più compatta)
-    keyboard = [
-        ['1h', '1,5h', '2h', '2,5h'],
-        ['3h', '3,5h', '4h', '4,5h'],
-        ['5h', '5,5h', '6h', '6,5h'],
-        ['7h', '7,5h', '8h', '8,5h'],
-        ['9h', '9,5h', '10h', '10,5h'],
-        ['11h', '11,5h', '12h']
-    ]
-    
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        "Seleziona il tempo di noleggio:",
-        reply_markup=reply_markup
-    )
-    return TEMPO
-
-async def get_tempo_input(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il tempo di noleggio"""
-    tempo_text = update.message.text
-    
-    # Lista completa di tempi validi
-    tempi_validi = []
-    for h in range(1, 13):
-        tempi_validi.append(f"{h}h")
-        if h < 12:
-            tempi_validi.append(f"{h},5h")
-    
-    if tempo_text not in tempi_validi:
-        # Ricrea la tastiera se l'input non è valido
-        keyboard = [
-            ['1h', '1,5h', '2h', '2,5h'],
-            ['3h', '3,5h', '4h', '4,5h'],
-            ['5h', '5,5h', '6h', '6,5h'],
-            ['7h', '7,5h', '8h', '8,5h'],
-            ['9h', '9,5h', '10h', '10,5h'],
-            ['11h', '11,5h', '12h']
-        ]
-        
-        await update.message.reply_text(
-            "❌ Seleziona un tempo valido con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return TEMPO
-    
-    context.user_data['tempo'] = tempo_text
-    
-    keyboard = [['CARD', 'BONIFICO']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        "Seleziona il tipo di PAGAMENTO:",
-        reply_markup=reply_markup
-    )
-    return PAGAMENTO
-
-async def get_pagamento(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve il tipo di pagamento"""
-    pagamento = update.message.text
-    if pagamento not in ['CARD', 'BONIFICO']:
-        keyboard = [['CARD', 'BONIFICO']]
-        await update.message.reply_text(
-            "❌ Seleziona CARD o BONIFICO con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return PAGAMENTO
-    
-    context.user_data['pagamento'] = pagamento
-    
-    keyboard = [['SÌ', 'NO']]
-    reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-    
-    await update.message.reply_text(
-        "Vuoi allegare la foto della ricevuta?",
-        reply_markup=reply_markup
-    )
-    return FOTO_RICEVUTA
-
-async def get_foto_ricevuta(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Gestisce la foto della ricevuta"""
-    risposta = update.message.text
-    
-    if risposta not in ['SÌ', 'NO']:
-        keyboard = [['SÌ', 'NO']]
-        await update.message.reply_text(
-            "❌ Seleziona SÌ o NO con i pulsanti:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return FOTO_RICEVUTA
-    
-    if risposta == 'SÌ':
-        await update.message.reply_text(
-            "📸 Invia la foto della ricevuta:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data['attende_foto'] = True
-        return FOTO_RICEVUTA
-    else:
-        context.user_data['foto_ricevuta'] = None
-        return await salva_registrazione(update, context)
-
-async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gestisce tutti gli errori del bot"""
-    logger.error(f"Errore causato da update {update}: {context.error}")
-    
-    # Se c'è un update, prova a rispondere all'utente
-    if update and update.effective_message:
-        try:
-            await update.effective_message.reply_text(
-                "⚠️ Si è verificato un errore. Riprova tra qualche secondo.\n"
-                "Se il problema persiste, usa /cancel e riprova con /start."
-            )
-        except Exception:
-            # Se non riesce nemmeno a mandare il messaggio, logga e basta
-            logger.error("Impossibile inviare messaggio di errore all'utente")
-
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Gestisce la ricezione della foto"""
-    if not context.user_data.get('attende_foto', False):
-        return FOTO_RICEVUTA
-    
-    try:
-        # Salva la foto
-        photo = update.message.photo[-1]  # Prende la foto con qualità più alta
-        file = await context.bot.get_file(photo.file_id)
-        
-        # Crea nome file con timestamp e dati cliente
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        nome = context.user_data.get('nome', 'unknown')
-        cognome = context.user_data.get('cognome', 'unknown')
-        filename = f"{timestamp}_{cognome}_{nome}_ricevuta.jpg"
-        filepath = os.path.join(PHOTOS_DIR, filename)
-        
-        await file.download_to_drive(filepath)
-        context.user_data['foto_ricevuta'] = filename
-        
-        await update.message.reply_text(
-            "✅ Foto ricevuta salvata!\n\n"
-            "📝 Vuoi aggiungere delle NOTE? (Scrivi le note o 'skip' per saltare):"
-        )
-        return NOTE
-        
-    except Exception as e:
-        logger.error(f"Errore salvataggio foto: {e}")
-        await update.message.reply_text(
-            "⚠️ Errore nel salvataggio della foto, procedo senza foto.\n\n"
-            "📝 Vuoi aggiungere delle NOTE? (Scrivi le note o 'skip' per saltare):"
-        )
-        context.user_data['foto_ricevuta'] = None
-        return NOTE
-
-async def get_note(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Riceve le note e completa la registrazione"""
-    note_text = update.message.text.strip()
-    
-    if note_text.lower() == 'skip':
-        context.user_data['note'] = None
-        await update.message.reply_text("✅ Nessuna nota aggiunta.")
-    else:
-        context.user_data['note'] = note_text
-        await update.message.reply_text(f"✅ Note salvate: {note_text}")
-    
-    # Ora salva tutto
-    return await salva_registrazione(update, context)
-
-async def salva_registrazione(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Salva la registrazione completa"""
-    try:
-        # Prepara i dati per il salvataggio
-        registrazione = {
-            'data': context.user_data['data'],
-            'cognome': context.user_data['cognome'],
-            'nome': context.user_data['nome'],
-            'documento': context.user_data['documento'],
-            'numero_documento': context.user_data['numero_documento'],
-            'telefono': context.user_data['telefono'],
-            'associato': context.user_data['associato'],
-            'tipo_noleggio': context.user_data['tipo_noleggio'],
-            'dettagli': context.user_data.get('dettagli', ''),
-            'numero': context.user_data.get('numero', ''),
-            'tempo': context.user_data['tempo'],
-            'pagamento': context.user_data['pagamento'],
-            'foto_ricevuta': context.user_data.get('foto_ricevuta'),
-            'timestamp': datetime.now().isoformat()
-        }
-        
-        # Salva nel database
-        bot_instance.noleggi.append(registrazione)
-        bot_instance.save_data()
-        
-        # Messaggio di conferma
-        messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA! (v.1.4)**
-
-📅 Data: {registrazione['data']}
-👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
-📄 Documento: {registrazione['documento']} - {registrazione['numero_documento']}
-📞 Telefono: {registrazione['telefono']}
-🏅 Associato: {registrazione['associato']}
-🏄‍♂️ Noleggio: {registrazione['tipo_noleggio']}
-📝 Dettagli: {registrazione['dettagli']}
-🔢 Numero: {registrazione['numero']}
-⏱️ Tempo: {registrazione['tempo']}
-💳 Pagamento: {registrazione['pagamento']}
-📸 Foto ricevuta: {'✅ Presente' if registrazione['foto_ricevuta'] else '❌ Non allegata'}
-
-💡 **Comandi utili:**
-• /start - Nuova registrazione
-• /cerca {registrazione['cognome']} - Trova questo cliente
-• /mostra_clienti - Vedi tutti i clienti
-• /export - Esporta dati CSV
-        """
-        
-        await update.message.reply_text(messaggio, reply_markup=ReplyKeyboardRemove())
-        
-        # Pulisce i dati utente
-        context.user_data.clear()
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"Errore nel salvataggio: {e}")
-        await update.message.reply_text(
-            "❌ Errore nel salvataggio dei dati. Riprova più tardi.",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        context.user_data.clear()
-        return ConversationHandler.END
 
 async def export_csv(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Esporta tutti i dati in un file CSV"""
+    """Export CSV semplificato"""
     if not bot_instance.noleggi:
-        await update.message.reply_text("📝 Nessun dato da esportare.")
+        await update.message.reply_text("📝 Nessun dato da esportare")
         return
     
     try:
-        # Nome file CSV con timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        csv_filename = f"noleggi_export_{timestamp}.csv"
+        csv_filename = f"noleggi_{timestamp}.csv"
         
-        # Crea il CSV
         with open(csv_filename, 'w', newline='', encoding='utf-8') as csvfile:
-            fieldnames = [
-                'Data', 'Cognome', 'Nome', 'Documento', 'Numero_Documento', 'Telefono', 'Associato',
-                'Tipo_Noleggio', 'Dettagli', 'Numero', 'Tempo', 'Pagamento', 'Importo',
-                'Foto_Ricevuta', 'Note', 'Timestamp'
-            ]
+            fieldnames = ['Data', 'Cognome', 'Nome', 'Telefono', 'Tipo_Noleggio', 'Tempo', 'Importo']
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             
             writer.writeheader()
             for registro in bot_instance.noleggi:
                 writer.writerow({
                     'Data': registro['data'],
-                    'Cognome': registro.get('cognome', registro.get('nome', '')),  # Retrocompatibilità
-                    'Nome': registro.get('nome', registro.get('cognome', '')),     # Retrocompatibilità
-                    'Documento': registro['documento'],
-                    'Numero_Documento': registro.get('numero_documento', ''),
+                    'Cognome': registro.get('cognome', ''),
+                    'Nome': registro.get('nome', ''),
                     'Telefono': registro['telefono'],
-                    'Associato': registro['associato'],
                     'Tipo_Noleggio': registro['tipo_noleggio'],
-                    'Dettagli': registro['dettagli'],
-                    'Numero': registro['numero'],
                     'Tempo': registro['tempo'],
-                    'Pagamento': registro['pagamento'],
-                    'Importo': registro.get('importo', ''),
-                    'Foto_Ricevuta': registro['foto_ricevuta'] or 'Non presente',
-                    'Note': registro.get('note', ''),
-                    'Timestamp': registro['timestamp']
+                    'Importo': registro.get('importo', '')
                 })
         
-        # Invia il file
         with open(csv_filename, 'rb') as f:
             await update.message.reply_document(
                 document=f,
                 filename=csv_filename,
-                caption=f"📊 Export completato! {len(bot_instance.noleggi)} registrazioni esportate."
+                caption=f"📊 {len(bot_instance.noleggi)} registrazioni"
             )
         
-        # Rimuove il file temporaneo
         os.remove(csv_filename)
         
     except Exception as e:
-        logger.error(f"Errore export CSV: {e}")
-        await update.message.reply_text("❌ Errore nella creazione del file CSV. Riprova più tardi.")
-
-async def cerca_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Cerca e mostra i dettagli di un cliente"""
-    if not bot_instance.noleggi:
-        await update.message.reply_text("📝 Nessun dato presente.")
-        return
-    
-    # Estrae il termine di ricerca dal comando
-    query = " ".join(context.args).strip().lower()
-    
-    if not query:
-        await update.message.reply_text(
-            "🔍 **CERCA CLIENTE**\n\n"
-            "Usa: `/cerca [termine]`\n\n"
-            "**Puoi cercare per:**\n"
-            "• Cognome: `/cerca Rossi`\n"
-            "• Nome: `/cerca Mario`\n"
-            "• Telefono: `/cerca 3331234567`\n"
-            "• Numero documento: `/cerca AB123456`\n"
-            "• Tipo noleggio: `/cerca SUP`, `/cerca KAYAK`\n"
-            "• Numero specifico: `/cerca drybag 9`, `/cerca lettino A`\n\n"
-            "💡 **Esempi avanzati:**\n"
-            "• `/cerca sup yoga` - trova chi ha noleggiato SUP yoga\n"
-            "• `/cerca phonebag 15` - trova chi ha il phonebag numero 15"
-        )
-        return
-    
-    # Cerca nelle registrazioni
-    risultati = []
-    for i, registro in enumerate(bot_instance.noleggi):
-        # Ricerca base (cognome, nome, telefono, numero documento)
-        trovato = (query in registro.get('cognome', '').lower() or 
-                  query in registro.get('nome', '').lower() or 
-                  query in registro['telefono'].lower() or
-                  query in registro.get('numero_documento', '').lower())
-        
-        # Ricerca per tipo noleggio
-        if not trovato:
-            if query in registro['tipo_noleggio'].lower():
-                trovato = True
-        
-        # Ricerca per dettagli (es: "yoga" per SUP yoga)
-        if not trovato:
-            if query in registro['dettagli'].lower():
-                trovato = True
-        
-        # Ricerca per numero specifico
-        if not trovato:
-            query_parts = query.split()
-            if len(query_parts) >= 2:
-                tipo_cercato = query_parts[0]
-                numero_cercato = query_parts[1]
-                
-                if (tipo_cercato in registro['tipo_noleggio'].lower() and 
-                    numero_cercato == registro['numero'].lower()):
-                    trovato = True
-        
-        # Ricerca semplice per numero
-        if not trovato:
-            if query == registro['numero'].lower():
-                trovato = True
-        
-        if trovato:
-            risultati.append((i, registro))
-    
-    if not risultati:
-        await update.message.reply_text(f"❌ Nessun cliente trovato per: **{query}**")
-        return
-    
-    if len(risultati) == 1:
-        # Un solo risultato - mostra i dettagli completi
-        _, registro = risultati[0]
-        messaggio = f"""
-🔍 **DETTAGLI CLIENTE TROVATO**
-
-📅 **Data:** {registro['data']}
-👤 **Nome:** {registro.get('cognome', '')} {registro.get('nome', '')}
-📄 **Documento:** {registro['documento']} - {registro.get('numero_documento', 'N/A')}
-📞 **Telefono:** {registro['telefono']}
-🏅 **Associato:** {registro['associato']}
-
-🏄‍♂️ **NOLEGGIO:**
-• **Tipo:** {registro['tipo_noleggio']}
-• **Dettagli:** {registro['dettagli']}
-• **Numero:** {registro['numero']}
-• **Tempo:** {registro['tempo']}
-
-💳 **PAGAMENTO:**
-• **Tipo:** {registro['pagamento']}
-• **Ricevuta:** {'✅ Presente' if registro['foto_ricevuta'] else '❌ Non allegata'}
-
-📝 **Registrato:** {registro['timestamp'][:19].replace('T', ' ')}
-        """
-        await update.message.reply_text(messaggio)
-    
-    else:
-        # Più risultati - mostra lista
-        messaggio = f"🔍 **TROVATI {len(risultati)} CLIENTI PER:** {query}\n\n"
-        
-        for i, (idx, registro) in enumerate(risultati[:10], 1):  # Mostra max 10
-            data_noleggio = registro['data']
-            tipo = registro['tipo_noleggio']
-            tempo = registro['tempo']
-            numero = registro['numero']
-            
-            messaggio += f"{i}. **{registro.get('cognome', '')} {registro.get('nome', '')}**\n"
-            messaggio += f"   📅 {data_noleggio} | 🏄‍♂️ {tipo} {registro['dettagli']}\n"
-            messaggio += f"   🔢 N. {numero} | ⏱️ {tempo} | 📞 {registro['telefono']}\n\n"
-        
-        if len(risultati) > 10:
-            messaggio += f"... e altri {len(risultati) - 10} risultati\n\n"
-        
-        messaggio += "💡 **Suggerimento:** Affina la ricerca per vedere i dettagli completi"
-        await update.message.reply_text(messaggio)
-
-async def mostra_clienti(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mostra tutti i clienti registrati con contatore"""
-    if not bot_instance.noleggi:
-        await update.message.reply_text("📝 Nessun cliente registrato.")
-        return
-    
-    # Raggruppa per data per vedere i clienti giornalieri
-    clienti_per_data = defaultdict(list)
-    
-    for registro in bot_instance.noleggi:
-        clienti_per_data[registro['data']].append(registro)
-    
-    # Ordina le date
-    date_ordinate = sorted(clienti_per_data.keys(), key=lambda x: tuple(map(int, x.split('/')[::-1])))
-    
-    messaggio = f"👥 **TUTTI I CLIENTI REGISTRATI**\n"
-    messaggio += f"📊 **Totale:** {len(bot_instance.noleggi)} noleggi\n\n"
-    
-    for data in date_ordinate[-5:]:  # Mostra ultime 5 date
-        registrazioni_giorno = clienti_per_data[data]
-        messaggio += f"📅 **{data}** ({len(registrazioni_giorno)} noleggi)\n"
-        
-        for registro in registrazioni_giorno:
-            nome_completo = f"{registro.get('cognome', '')} {registro.get('nome', '')}"
-            tipo_breve = registro['tipo_noleggio']
-            numero = registro['numero']
-            tempo = registro['tempo']
-            
-            # Icone per i tipi
-            icona = {"SUP": "🏄‍♂️", "KAYAK": "🚣‍♂️", "LETTINO": "🏖️", 
-                    "PHONEBAG": "📱", "DRYBAG": "🎒"}.get(tipo_breve, "📦")
-            
-            messaggio += f"  • {nome_completo} - {icona}{tipo_breve}"
-            if numero:
-                messaggio += f" N.{numero}"
-            messaggio += f" ({tempo})\n"
-        
-        messaggio += "\n"
-    
-    if len(date_ordinate) > 5:
-        altre_date = len(date_ordinate) - 5
-        messaggio += f"📋 ... e altri {altre_date} giorni di registrazioni\n\n"
-    
-    messaggio += "💡 Usa `/cerca [termine]` per trovare un cliente specifico"
-    
-    await update.message.reply_text(messaggio)
-
-# Stati per la modifica
-SELEZIONA_CLIENTE, SELEZIONA_CAMPO, NUOVO_VALORE = range(100, 103)
-
-async def modifica_cliente(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Avvia la procedura di modifica di un cliente"""
-    if not bot_instance.noleggi:
-        await update.message.reply_text("📝 Nessun cliente da modificare.")
-        return ConversationHandler.END
-    
-    await update.message.reply_text(
-        "✏️ **MODIFICA CLIENTE**\n\n"
-        "Scrivi il nome, cognome o telefono del cliente da modificare:"
-    )
-    return SELEZIONA_CLIENTE
-
-async def seleziona_cliente_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Seleziona il cliente da modificare"""
-    query = update.message.text.strip().lower()
-    
-    # Cerca il cliente
-    risultati = []
-    for i, registro in enumerate(bot_instance.noleggi):
-        if (query in registro.get('cognome', '').lower() or 
-            query in registro.get('nome', '').lower() or 
-            query in registro['telefono'].lower()):
-            risultati.append((i, registro))
-    
-    if not risultati:
-        await update.message.reply_text(f"❌ Nessun cliente trovato per: **{query}**\n\nRiprova con un altro termine:")
-        return SELEZIONA_CLIENTE
-    
-    if len(risultati) == 1:
-        # Un solo risultato - procedi alla selezione del campo
-        context.user_data['cliente_modifica_idx'] = risultati[0][0]
-        registro = risultati[0][1]
-        
-        # Mostra i campi modificabili
-        keyboard = [
-            ['Cognome', 'Nome', 'Telefono'],
-            ['Documento', 'Numero Documento'],
-            ['Tipo Noleggio', 'Tempo', 'Pagamento'],
-            ['Annulla']
-        ]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        
-        messaggio = f"""
-✏️ **CLIENTE SELEZIONATO:**
-{registro.get('cognome', '')} {registro.get('nome', '')} - {registro['telefono']}
-📅 {registro['data']} | 🏄‍♂️ {registro['tipo_noleggio']}
-
-**Quale campo vuoi modificare?**
-        """
-        
-        await update.message.reply_text(messaggio, reply_markup=reply_markup)
-        return SELEZIONA_CAMPO
-    
-    else:
-        # Più risultati - mostra lista numerata
-        messaggio = f"🔍 **TROVATI {len(risultati)} CLIENTI:**\n\n"
-        
-        for i, (idx, registro) in enumerate(risultati[:5], 1):  # Max 5
-            messaggio += f"{i}. {registro.get('cognome', '')} {registro.get('nome', '')}\n"
-            messaggio += f"   📅 {registro['data']} | 📞 {registro['telefono']}\n\n"
-        
-        messaggio += "Scrivi il nome completo del cliente che vuoi modificare:"
-        await update.message.reply_text(messaggio)
-        return SELEZIONA_CLIENTE
-
-async def seleziona_campo_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Seleziona il campo da modificare"""
-    campo = update.message.text
-    campi_validi = ['Cognome', 'Nome', 'Telefono', 'Documento', 'Numero Documento', 'Tipo Noleggio', 'Tempo', 'Pagamento']
-    
-    if campo == 'Annulla':
-        await update.message.reply_text("❌ Modifica annullata.", reply_markup=ReplyKeyboardRemove())
-        context.user_data.clear()
-        return ConversationHandler.END
-    
-    if campo not in campi_validi:
-        keyboard = [
-            ['Cognome', 'Nome', 'Telefono'],
-            ['Documento', 'Numero Documento'],
-            ['Tipo Noleggio', 'Tempo', 'Pagamento'],
-            ['Annulla']
-        ]
-        await update.message.reply_text(
-            "❌ Seleziona un campo valido:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return SELEZIONA_CAMPO
-    
-    context.user_data['campo_modifica'] = campo
-    
-    # Mostra valore attuale e chiedi nuovo valore
-    idx = context.user_data['cliente_modifica_idx']
-    registro = bot_instance.noleggi[idx]
-    
-    campo_map = {
-        'Cognome': 'cognome',
-        'Nome': 'nome', 
-        'Telefono': 'telefono',
-        'Documento': 'documento',
-        'Numero Documento': 'numero_documento',
-        'Tipo Noleggio': 'tipo_noleggio',
-        'Tempo': 'tempo',
-        'Pagamento': 'pagamento'
-    }
-    
-    valore_attuale = registro.get(campo_map[campo], 'N/A')
-    
-    if campo == 'Documento':
-        keyboard = [['C.I.', 'PAT'], ['PASS', 'ALTRO']]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        messaggio = f"📄 **Valore attuale:** {valore_attuale}\n\nSeleziona il nuovo tipo di documento:"
-    elif campo == 'Tipo Noleggio':
-        keyboard = [['SUP', 'KAYAK', 'LETTINO'], ['PHONEBAG', 'DRYBAG']]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        messaggio = f"🏄‍♂️ **Valore attuale:** {valore_attuale}\n\nSeleziona il nuovo tipo di noleggio:"
-    elif campo == 'Pagamento':
-        keyboard = [['CARD', 'BONIFICO']]
-        reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        messaggio = f"💳 **Valore attuale:** {valore_attuale}\n\nSeleziona il nuovo tipo di pagamento:"
-    else:
-        reply_markup = ReplyKeyboardRemove()
-        messaggio = f"✏️ **Valore attuale:** {valore_attuale}\n\nInserisci il nuovo valore:"
-    
-    await update.message.reply_text(messaggio, reply_markup=reply_markup)
-    return NUOVO_VALORE
-
-async def salva_modifica(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Salva la modifica effettuata"""
-    nuovo_valore = update.message.text
-    idx = context.user_data['cliente_modifica_idx']
-    campo = context.user_data['campo_modifica']
-    
-    campo_map = {
-        'Cognome': 'cognome',
-        'Nome': 'nome', 
-        'Telefono': 'telefono',
-        'Documento': 'documento',
-        'Numero Documento': 'numero_documento',
-        'Tipo Noleggio': 'tipo_noleggio',
-        'Tempo': 'tempo',
-        'Pagamento': 'pagamento'
-    }
-    
-    # Validazioni specifiche
-    if campo == 'Documento' and nuovo_valore not in ['C.I.', 'PAT', 'PASS', 'ALTRO']:
-        keyboard = [['C.I.', 'PAT'], ['PASS', 'ALTRO']]
-        await update.message.reply_text(
-            "❌ Seleziona un documento valido:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return NUOVO_VALORE
-    
-    if campo == 'Tipo Noleggio' and nuovo_valore not in ['SUP', 'KAYAK', 'LETTINO', 'PHONEBAG', 'DRYBAG']:
-        keyboard = [['SUP', 'KAYAK', 'LETTINO'], ['PHONEBAG', 'DRYBAG']]
-        await update.message.reply_text(
-            "❌ Seleziona un tipo di noleggio valido:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return NUOVO_VALORE
-    
-    if campo == 'Pagamento' and nuovo_valore not in ['CARD', 'BONIFICO']:
-        keyboard = [['CARD', 'BONIFICO']]
-        await update.message.reply_text(
-            "❌ Seleziona un tipo di pagamento valido:",
-            reply_markup=ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
-        )
-        return NUOVO_VALORE
-    
-    # Salva la modifica
-    valore_precedente = bot_instance.noleggi[idx].get(campo_map[campo], 'N/A')
-    
-    # Assicura che il campo esista nel record (retrocompatibilità)
-    if campo_map[campo] not in bot_instance.noleggi[idx]:
-        bot_instance.noleggi[idx][campo_map[campo]] = ''
-    
-    bot_instance.noleggi[idx][campo_map[campo]] = nuovo_valore
-    bot_instance.save_data()
-    
-    # Messaggio di conferma
-    registro = bot_instance.noleggi[idx]
-    messaggio = f"""
-✅ **MODIFICA COMPLETATA!**
-
-👤 **Cliente:** {registro.get('cognome', '')} {registro.get('nome', '')}
-✏️ **Campo modificato:** {campo}
-📝 **Da:** {valore_precedente}
-📝 **A:** {nuovo_valore}
-
-La modifica è stata salvata nel database.
-    """
-    
-    await update.message.reply_text(messaggio, reply_markup=ReplyKeyboardRemove())
-    context.user_data.clear()
-    return ConversationHandler.END
-
-async def vedi_ricevute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mostra le ricevute per cliente"""
-    if not bot_instance.noleggi:
-        await update.message.reply_text("📝 Nessun dato presente.")
-        return
-    
-    # Raggruppa per cliente
-    clienti_con_ricevute = {}
-    clienti_senza_ricevute = {}
-    
-    for registro in bot_instance.noleggi:
-        nome_completo = f"{registro.get('cognome', '')} {registro.get('nome', '')}"
-        if registro['foto_ricevuta']:
-            if nome_completo not in clienti_con_ricevute:
-                clienti_con_ricevute[nome_completo] = []
-            clienti_con_ricevute[nome_completo].append(registro)
-        else:
-            if nome_completo not in clienti_senza_ricevute:
-                clienti_senza_ricevute[nome_completo] = []
-            clienti_senza_ricevute[nome_completo].append(registro)
-    
-    messaggio = "📸 **STATO RICEVUTE CLIENTI**\n\n"
-    
-    if clienti_con_ricevute:
-        messaggio += "✅ **CLIENTI CON RICEVUTE:**\n"
-        for cliente, registrazioni in clienti_con_ricevute.items():
-            messaggio += f"• {cliente} ({len(registrazioni)} noleggi)\n"
-    
-    if clienti_senza_ricevute:
-        messaggio += "\n❌ **CLIENTI SENZA RICEVUTE:**\n"
-        for cliente, registrazioni in clienti_senza_ricevute.items():
-            messaggio += f"• {cliente} ({len(registrazioni)} noleggi)\n"
-    
-    await update.message.reply_text(messaggio)
+        logger.error(f"Errore export: {e}")
+        await update.message.reply_text("❌ Errore export")
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancella la conversazione corrente"""
-    await update.message.reply_text(
-        "❌ Operazione annullata. Usa /start per iniziare una nuova registrazione.",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    """Cancella operazione"""
+    await update.message.reply_text("❌ Annullato", reply_markup=ReplyKeyboardRemove())
     context.user_data.clear()
     return ConversationHandler.END
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Mostra la guida ai comandi"""
+    """Help semplificato"""
     help_text = """
-🏄‍♂️ **BOT NOLEGGIO SUP - GUIDA COMANDI**
+🏄‍♂️ **BOT NOLEGGIO SUP v.2.5**
 
-/start - Inizia una nuova registrazione noleggio
-/cerca - Cerca cliente (nome/tipo noleggio/numero)
-/mostra_clienti - Lista completa clienti con contatori
-/modifica - Modifica dati di un cliente esistente
-/export - Esporta tutti i dati in formato CSV
-/vedi_ricevute - Visualizza stato ricevute per cliente
-/help - Mostra questa guida
-/cancel - Annulla l'operazione in corso
+/nuovo - Nuova registrazione noleggio
+/mostra_noleggi - Clienti di oggi (raggruppati)
+/export - Esporta tutti i dati CSV
+/help - Questa guida
+/cancel - Annulla operazione
 
-**Come funziona:**
-1. Usa /start per registrare un noleggio
-2. Segui la procedura guidata con i PULSANTI (non scrivere!)
-3. Puoi allegare foto della ricevuta (opzionale)
-4. Usa /cerca per trovare clienti specifici
-5. Usa /mostra_clienti per vedere tutti i clienti
-6. Usa /modifica per correggere errori
-7. Usa /export per scaricare tutti i dati in CSV
+**🔄 NOLEGGI MULTIPLI:**
+• Dopo ogni noleggio puoi aggiungerne altri
+• Stesso cliente = dati già compilati
+• Esempio: SUP + 2 PHONEBAG + LETTINO
 
-**⚠️ IMPORTANTE: Usa sempre i PULSANTI, non scrivere le risposte!**
+**📅 VISTA GIORNALIERA:**
+• `/mostra_noleggi` raggruppa per cliente
+• Mostra tutti i noleggi per persona
+• 📸 indica clienti con foto ricevute
+• (n) = numero di noleggi del cliente
 
-**Ricerca avanzata con /cerca:**
-• Cognome/Nome: `/cerca Rossi`, `/cerca Mario`
-• Telefono: `/cerca 3331234567`
-• Numero documento: `/cerca AB123456`
-• Tipo noleggio: `/cerca SUP`, `/cerca KAYAK`
-• Numero specifico: `/cerca drybag 9`, `/cerca lettino A`
-• Dettagli: `/cerca sup yoga`, `/cerca lettino pineta`
+**⚠️ Usa sempre i PULSANTI durante la registrazione!**
 
-**Tipi di noleggio supportati:**
-• SUP (con 10 varianti)
-• KAYAK
-• LETTINO (Pineta/Squero con numerazione A-Z per associati, 0-99 per non associati)
-• PHONEBAG (numeri 0-99)
-• DRYBAG (numeri 0-99)
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👨‍💻 **Autore:** Dino Bronzi
-📅 **Creato:** 26 Luglio 2025
-🔄 **Versione:** 2.1 - STESSO TEMPO PER TUTTO!
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👨‍💻 Dino Bronzi - 26/07/2025
     """
     await update.message.reply_text(help_text)
 
 def main():
-    """Funzione principale per avviare il bot"""
-    try:
-        # Token del bot da variabile d'ambiente
-        TOKEN = os.getenv('BOT_TOKEN')
-        
-        if not TOKEN:
-            print("❌ ERRORE: Token non trovato!")
-            print("🔧 Imposta la variabile d'ambiente BOT_TOKEN")
-            return
-        
-        # Crea l'applicazione
-        application = Application.builder().token(TOKEN).build()
-        
-        # Handler per la conversazione di registrazione
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler("nuovo", start)],  # SOLO /nuovo funziona
-            states={
-                DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_data)],
-                COGNOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_cognome)],
-                NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_nome)],
-                DOCUMENTO: [CallbackQueryHandler(handle_callback)],
-                NUMERO_DOCUMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numero_documento)],
-                TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_telefono)],
-                ASSOCIATO: [CallbackQueryHandler(handle_callback)],
-                TIPO_NOLEGGIO: [CallbackQueryHandler(handle_callback)],
-                DETTAGLI_SUP: [CallbackQueryHandler(handle_callback)],
-                DETTAGLI_LETTINO: [CallbackQueryHandler(handle_callback)],
-                LETTINO_NUMERO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_lettino_numero)],
-                TEMPO: [CallbackQueryHandler(handle_callback)],
-                PAGAMENTO: [CallbackQueryHandler(handle_callback)],
-                IMPORTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_importo)],
-                FOTO_RICEVUTA: [
-                    CallbackQueryHandler(handle_callback),
-                    MessageHandler(filters.PHOTO, handle_photo)
-                ],
-                NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)],
-            },
-            fallbacks=[CommandHandler("cancel", cancel)],
-        )
-        
-        # Handler per la conversazione di modifica
-        modifica_handler = ConversationHandler(
-            entry_points=[CommandHandler("modifica", modifica_cliente)],
-            states={
-                SELEZIONA_CLIENTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seleziona_cliente_modifica)],
-                SELEZIONA_CAMPO: [MessageHandler(filters.TEXT & ~filters.COMMAND, seleziona_campo_modifica)],
-                NUOVO_VALORE: [MessageHandler(filters.TEXT & ~filters.COMMAND, salva_modifica)],
-            },
-            fallbacks=[CommandHandler("cancel", cancel)],
-        )
-        
-        # Aggiungi gli handler
-        application.add_handler(conv_handler)
-        application.add_handler(modifica_handler)
-        application.add_handler(CommandHandler("start", help_command))  # /start mostra help
-        application.add_handler(CommandHandler("help", help_command))
-        application.add_handler(CommandHandler("cerca", cerca_cliente))
-        application.add_handler(CommandHandler("mostra_clienti", mostra_clienti))
-        application.add_handler(CommandHandler("export", export_csv))
-        application.add_handler(CommandHandler("vedi_ricevute", vedi_ricevute))
-        
-        # IMPORTANTE: Aggiungi error handler
-        application.add_error_handler(error_handler)
-        
-        # Avvia il bot con configurazioni corrette
-        print("🏄‍♂️ Bot SUP Rental v.1.9 avviato!")
-        print("📱 Usa /start per iniziare una registrazione")
-        print("❌ Premi Ctrl+C per fermare il bot")
-        
-        # Configurazioni semplici e compatibili
-        application.run_polling(
-            drop_pending_updates=True,  # Ignora messaggi pendenti al riavvio
-            allowed_updates=Update.ALL_TYPES  # Gestisce tutti i tipi di update
-        )
-        
-    except Exception as e:
-        logger.error(f"Errore critico nell'avvio del bot: {e}")
-        print(f"❌ Errore nell'avvio del bot: {e}")
-        print("🔧 Verifica il token e la connessione internet")
+    """Avvia il bot"""
+    TOKEN = os.getenv('BOT_TOKEN')
+    
+    if not TOKEN:
+        print("❌ Token mancante!")
+        return
+    
+    application = Application.builder().token(TOKEN).build()
+    
+    # Conversation handler principale
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("nuovo", start)],
+        states={
+            DATA: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_data)],
+            COGNOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_cognome)],
+            NOME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_nome)],
+            DOCUMENTO: [CallbackQueryHandler(handle_callback)],
+            NUMERO_DOCUMENTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_numero_documento)],
+            TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_telefono)],
+            ASSOCIATO: [CallbackQueryHandler(handle_callback)],
+            TIPO_NOLEGGIO: [CallbackQueryHandler(handle_callback)],
+            DETTAGLI_SUP: [CallbackQueryHandler(handle_callback)],
+            DETTAGLI_LETTINO: [CallbackQueryHandler(handle_callback)],
+            LETTINO_NUMERO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_lettino_numero)],
+            TEMPO: [CallbackQueryHandler(handle_callback)],
+            PAGAMENTO: [CallbackQueryHandler(handle_callback)],
+            IMPORTO: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_importo)],
+            FOTO_RICEVUTA: [
+                CallbackQueryHandler(handle_callback),
+                MessageHandler(filters.PHOTO, handle_photo)
+            ],
+            NOTE: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_note)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    
+    # Aggiungi handlers
+    application.add_handler(conv_handler)
+    application.add_handler(CommandHandler(["start", "help"], help_command))
+    application.add_handler(CommandHandler("mostra_noleggi", mostra_noleggi))
+    application.add_handler(CommandHandler("export", export_csv))
+    
+    # Handler per i callback di mostra_noleggi (fuori dalla conversazione)
+    application.add_handler(CallbackQueryHandler(handle_callback, pattern="^(cliente_|foto_)"))
+    
+    print("🏄‍♂️ Bot SUP v.2.4 avviato!")
+    print("📅 /mostra_noleggi - Vedi clienti di oggi")
+    print("📸 Foto ricevute visualizzabili nei dettagli clienti")
+    application.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
