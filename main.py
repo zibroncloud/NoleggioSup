@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 1.6 - ERROR HANDLERS + Bug Fix
+Versione: 1.8 - Tempo buttons in progressione logica (1h, 1.5h, 2h...)
 """
 
 import os
@@ -282,7 +282,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     return ConversationHandler.END
 
 async def show_tempo_buttons(query, context):
-    """Mostra i pulsanti per la selezione del tempo"""
+    """Mostra i pulsanti per la selezione del tempo - Progressione logica 1-8h"""
     keyboard = [
         [InlineKeyboardButton("1h", callback_data="tempo_1h"), InlineKeyboardButton("1,5h", callback_data="tempo_1,5h")],
         [InlineKeyboardButton("2h", callback_data="tempo_2h"), InlineKeyboardButton("2,5h", callback_data="tempo_2,5h")],
@@ -291,20 +291,27 @@ async def show_tempo_buttons(query, context):
         [InlineKeyboardButton("5h", callback_data="tempo_5h"), InlineKeyboardButton("5,5h", callback_data="tempo_5,5h")],
         [InlineKeyboardButton("6h", callback_data="tempo_6h"), InlineKeyboardButton("6,5h", callback_data="tempo_6,5h")],
         [InlineKeyboardButton("7h", callback_data="tempo_7h"), InlineKeyboardButton("7,5h", callback_data="tempo_7,5h")],
-        [InlineKeyboardButton("8h", callback_data="tempo_8h"), InlineKeyboardButton("8,5h", callback_data="tempo_8,5h")],
-        [InlineKeyboardButton("9h", callback_data="tempo_9h"), InlineKeyboardButton("9,5h", callback_data="tempo_9,5h")],
-        [InlineKeyboardButton("10h", callback_data="tempo_10h"), InlineKeyboardButton("10,5h", callback_data="tempo_10,5h")],
-        [InlineKeyboardButton("11h", callback_data="tempo_11h"), InlineKeyboardButton("11,5h", callback_data="tempo_11,5h")],
-        [InlineKeyboardButton("12h", callback_data="tempo_12h")]
+        [InlineKeyboardButton("8h", callback_data="tempo_8h")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     dettagli = context.user_data.get('dettagli', 'Standard')
-    await query.edit_message_text(
-        f"✅ Dettagli: {dettagli}\n\n"
-        "Seleziona il tempo di noleggio:",
-        reply_markup=reply_markup
-    )
+    
+    try:
+        await query.edit_message_text(
+            f"✅ Dettagli: {dettagli}\n\n"
+            "Seleziona il tempo di noleggio (1-8h):",
+            reply_markup=reply_markup
+        )
+    except Exception as e:
+        logger.error(f"Errore mostrando pulsanti tempo: {e}")
+        # Fallback: invia nuovo messaggio se edit fallisce
+        await query.message.reply_text(
+            f"✅ Dettagli: {dettagli}\n\n"
+            "Seleziona il tempo di noleggio (1-8h):",
+            reply_markup=reply_markup
+        )
+    
     return TEMPO
     """Riceve il tipo di documento e chiede il numero"""
     documento = update.message.text
@@ -380,7 +387,7 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
         
         # Messaggio di conferma
         messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA! (v.1.5)**
+✅ **REGISTRAZIONE COMPLETATA! (v.1.8)**
 
 📅 Data: {registrazione['data']}
 👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
@@ -678,6 +685,21 @@ async def get_foto_ricevuta(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         context.user_data['foto_ricevuta'] = None
         return await salva_registrazione(update, context)
+
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gestisce tutti gli errori del bot"""
+    logger.error(f"Errore causato da update {update}: {context.error}")
+    
+    # Se c'è un update, prova a rispondere all'utente
+    if update and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "⚠️ Si è verificato un errore. Riprova tra qualche secondo.\n"
+                "Se il problema persiste, usa /cancel e riprova con /start."
+            )
+        except Exception:
+            # Se non riesce nemmeno a mandare il messaggio, logga e basta
+            logger.error("Impossibile inviare messaggio di errore all'utente")
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Gestisce la ricezione della foto"""
@@ -1271,7 +1293,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 **Autore:** Dino Bronzi
 📅 **Creato:** 26 Luglio 2025
-🔄 **Versione:** 1.5 - INLINE BUTTONS che funzionano sempre!
+🔄 **Versione:** 1.8 - Tempo progressivo logico
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     await update.message.reply_text(help_text)
@@ -1336,11 +1358,25 @@ def main():
         application.add_handler(CommandHandler("export", export_csv))
         application.add_handler(CommandHandler("vedi_ricevute", vedi_ricevute))
         
-        # Avvia il bot
-        print("🏄‍♂️ Bot SUP Rental avviato!")
+        # IMPORTANTE: Aggiungi error handler
+        application.add_error_handler(error_handler)
+        
+        # Avvia il bot con configurazioni robuste
+        print("🏄‍♂️ Bot SUP Rental v.1.6 avviato!")
         print("📱 Usa /start per iniziare una registrazione")
         print("❌ Premi Ctrl+C per fermare il bot")
-        application.run_polling()
+        
+        # Configurazioni più robuste per evitare errori di rete
+        application.run_polling(
+            drop_pending_updates=True,  # Ignora messaggi pendenti al riavvio
+            allowed_updates=Update.ALL_TYPES,  # Gestisce tutti i tipi di update
+            timeout=20,  # Timeout per le richieste
+            bootstrap_retries=3,  # Retry in caso di errori
+            read_timeout=10,  # Timeout di lettura
+            write_timeout=10,  # Timeout di scrittura
+            connect_timeout=10,  # Timeout di connessione
+            pool_timeout=10  # Timeout del pool
+        )
         
     except Exception as e:
         logger.error(f"Errore critico nell'avvio del bot: {e}")
