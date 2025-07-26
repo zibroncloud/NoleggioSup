@@ -4,7 +4,7 @@
 Bot Telegram per Noleggio SUP
 Autore: Dino Bronzi
 Data creazione: 26 Luglio 2025
-Versione: 2.0 - BASTA PERDERE TEMPO! Layout semplice che FUNZIONA
+Versione: 2.1 - STESSO TEMPO PER TUTTO! 1-8h sempre uguale!
 """
 
 import os
@@ -204,12 +204,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             
         else:  # KAYAK
             context.user_data['dettagli'] = 'Standard'
+            # USA SEMPRE LA STESSA FUNZIONE TEMPO!
             return await show_tempo_buttons(query, context)
     
     # SUP dettagli
     elif data.startswith("sup_"):
         dettagli = data.replace("sup_", "")
         context.user_data['dettagli'] = dettagli
+        # USA SEMPRE LA STESSA FUNZIONE TEMPO!
         return await show_tempo_buttons(query, context)
     
     # Lettino dettagli
@@ -411,7 +413,7 @@ async def salva_registrazione_callback(query, context: ContextTypes.DEFAULT_TYPE
         
         # Messaggio di conferma
         messaggio = f"""
-✅ **REGISTRAZIONE COMPLETATA! (v.1.9)**
+✅ **REGISTRAZIONE COMPLETATA! (v.2.1)**
 
 📅 Data: {registrazione['data']}
 👤 Cliente: {registrazione['cognome']} {registrazione['nome']}
@@ -604,7 +606,17 @@ async def get_lettino_numero(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return LETTINO_NUMERO
     
     context.user_data['numero'] = numero_text
-    return await get_tempo(update, context)
+    
+    # TUTTI VANNO ALLA STESSA FUNZIONE TEMPO!
+    await update.message.reply_text("⏳ Caricamento opzioni tempo...")
+    
+    # Simula query per chiamare show_tempo_buttons
+    from types import SimpleNamespace
+    fake_query = SimpleNamespace()
+    fake_query.edit_message_text = lambda text, reply_markup=None: update.message.reply_text(text, reply_markup=reply_markup)
+    fake_query.message = update.message
+    
+    return await show_tempo_buttons(fake_query, context)
 
 async def get_tempo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Chiede il tempo di noleggio"""
@@ -1317,7 +1329,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 👨‍💻 **Autore:** Dino Bronzi
 📅 **Creato:** 26 Luglio 2025
-🔄 **Versione:** 1.9 - HOTFIX parametri run_polling
+🔄 **Versione:** 2.1 - STESSO TEMPO PER TUTTO!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     """
     await update.message.reply_text(help_text)
